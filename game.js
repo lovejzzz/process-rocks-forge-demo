@@ -677,6 +677,15 @@
   /* ── Double-click to clear ── */
   processBox.addEventListener('dblclick', () => setProcess(null));
 
+  /* ── Click trash to clear entire forge table ── */
+  trashCan.addEventListener('click', () => {
+    if (!sourceCollection && !processId && !productCollection) return;
+    sfxTrash();
+    setSource(null);
+    setProcess(null);
+    setProduct(null);
+  });
+
   /* ═══════════════════════════════════════════
      MOBILE TOUCH-DRAG SUPPORT
      ═══════════════════════════════════════════ */
