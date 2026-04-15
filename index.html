@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rock Forge</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <h2>MATERIALS</h2>
+    <div id="materials-section">
+      <div class="sidebar-item" draggable="true" data-type="rock" id="base-rock">
+        <canvas id="sidebar-rock-canvas" width="120" height="120"></canvas>
+        <span>Rock</span>
+      </div>
+      <div id="saved-materials"></div>
+      <div id="save-zone">↓ Drop product here to save ↓</div>
+    </div>
+    <h2>PROCESSES</h2>
+    <div class="sidebar-item process-item" draggable="true" data-type="process" data-process="flip">
+      <div class="process-icon">↔</div><span>Flip</span>
+    </div>
+    <div class="sidebar-item process-item" draggable="true" data-type="process" data-process="split_half">
+      <div class="process-icon">⫽</div><span>Split Half</span>
+    </div>
+    <div class="sidebar-item process-item" draggable="true" data-type="process" data-process="mosaic_ruby">
+      <div class="process-icon ruby-icon">◆</div><span>Mosaic Ruby</span>
+    </div>
+    <div class="sidebar-item process-item" draggable="true" data-type="process" data-process="gold_plated">
+      <div class="process-icon gold-icon">✦</div><span>Gold Plated</span>
+    </div>
+  </div>
+
+  <div id="main">
+    <h1>⛏ ROCK FORGE ⛏</h1>
+    <div id="forge-area">
+      <div class="box-wrapper">
+        <div class="box" id="source-box" data-accept="rock">
+          <canvas width="160" height="160"></canvas>
+          <div class="box-label">SOURCE</div>
+          <div class="box-hint">Drop rock here</div>
+        </div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="box-wrapper">
+        <div class="box" id="process-box" data-accept="process">
+          <div class="process-display"></div>
+          <div class="box-label">PROCESS</div>
+          <div class="box-hint">Drop process here</div>
+        </div>
+      </div>
+      <div class="arrow">=</div>
+      <div class="box-wrapper">
+        <div class="box" id="product-box">
+          <canvas width="160" height="160"></canvas>
+          <div class="box-label">PRODUCT</div>
+          <div class="box-hint">Result here</div>
+        </div>
+      </div>
+    </div>
+    <button id="forge-btn" disabled>🔥 FORGE 🔥</button>
+    <div id="history"></div>
+  </div>
+</div>
+<div id="trash-can">🗑️<span>TRASH</span></div>
+<div id="forge-overlay">
+  <canvas id="forge-anim-canvas" width="400" height="400"></canvas>
+  <div id="forge-anim-label"></div>
+</div>
+<script src="rock.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
