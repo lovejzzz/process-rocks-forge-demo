@@ -1,30 +1,46 @@
-a html game:
+# Rock Forge — Design Process
 
-This game is about process rocks,  pixel art style. 
+## Core Loop
 
+The entire game revolves around one repeating cycle:
+
+```
 [Source Material]
        ↓
-    [Process]
+   [Process]
        ↓
-    [Product]
+   [Product]
+       ↓
+ becomes source material again
+```
 
+A **source material** enters the forge, a **process** is applied, and a **product** comes out. The product can then be dragged back into the source slot to be processed again — infinitely.
 
-But the crazy part of the game is, the [Product] can drag back to the source material box becomes source material again, and process again.
+This is the fundamental design pattern. Every object in the game is the result of zero or more transformations applied to a base rock. There is no final state; the player decides when to stop.
 
-1, we just need 3 boxes with arrow and "=".
-2, we need a "Forge" button, when user get the source and process ready, just click forge, user will have the product appear in the product box. 
+## Why This Matters
 
-3, on the leftside, we can see the rock, and all the process listed, user can drag it to the boxes.
+The cyclic workflow means:
 
-The process list:
-- Flip
-- Mosaic a red ruby
-- Gold plated
-- Split to half
+- **No hard-coded outcomes.** The system must handle arbitrary chains of transformations. A rock that has been split, ruby-mosaic'd, gold-plated, flipped, and split again must still be a valid source.
+- **Composition over configuration.** Each process is a pure function: rock in, rock out. They compose freely in any order.
+- **History is visible.** Every product carries the full sequence of processes that created it, shown as a breadcrumb trail.
 
-You need a conviced physics engine to make the process look real.
-And you need make sure the process can be infinite.
+## The Four Processes
 
-Example, a rock, Gold plated, then Split to half(you can see the inside), then Mosaic a red ruby(will only apply to one half of the thing), then Gold plated again(will see the red ruby covered in gold)....
+| Process | What It Does |
+|---------|-------------|
+| **Flip** | Mirrors the rock horizontally |
+| **Split Half** | Cuts the rock into two separate pieces |
+| **Mosaic Ruby** | Embeds clusters of red ruby into the surface |
+| **Gold Plated** | Wraps a layer of gold around the entire shape, making it thicker |
 
-So we can't hard code everything, we need a flexible system to handle the process.
+Each process is independent and stackable. Gold plating preserves rubies. Splitting produces two selectable pieces. Any subset of pieces can be selected for the next process.
+
+## Interaction Model
+
+1. **Drag** a material from the sidebar into the **Source** box.
+2. **Drag** a process from the sidebar into the **Process** box.
+3. Click **FORGE** — an animation plays showing the transformation.
+4. The **Product** appears. Drag it back to Source to continue, or drop it in the save zone to keep it as a reusable material.
+5. Drag anything to the **Trash** to discard it.
