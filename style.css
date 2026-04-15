@@ -354,6 +354,15 @@ h1 {
   animation: blink 1.5s step-start infinite;
 }
 
+/* ── Prevent scroll during touch drag ── */
+.sidebar-item[data-type],
+.saved-material,
+#source-box,
+#process-box,
+#product-box {
+  touch-action: none;
+}
+
 /* ── Mobile responsive ── */
 @media (max-width: 700px) {
   #app {
