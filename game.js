@@ -9,7 +9,30 @@
   let savedMaterials    = [];
   let savedCounter      = 0;
 
+  let dragType = null; // track what is being dragged
+
   const baseRock = Rock.createBase();
+
+  /* ── 8-bit Sound Effects (Web Audio API) ── */
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  function playTone(freq, duration, type, vol) {
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    g.connect(audioCtx.destination);
+    const o = audioCtx.createOscillator();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    o.connect(g);
+    o.start(); o.stop(audioCtx.currentTime + duration);
+  }
+
+  function sfxDrop()   { playTone(520, 0.06, 'square', 0.08); }
+  function sfxForge()  { playTone(330, 0.12, 'square', 0.08); }
+  function sfxDone()   { playTone(660, 0.1, 'square', 0.08); }
+  function sfxTrash()  { playTone(200, 0.1, 'square', 0.06); }
+  function sfxReject() { playTone(150, 0.08, 'square', 0.05); }
 
   /* ── DOM refs ── */
   const sourceBox      = document.getElementById('source-box');
@@ -179,50 +202,72 @@
     el.addEventListener('dragstart', e => {
       const type = el.dataset.type;
       if (type === 'rock') {
+        dragType = 'rock';
         e.dataTransfer.setData('text/plain', 'rock');
       } else if (type === 'process') {
+        dragType = 'process';
         e.dataTransfer.setData('text/plain', 'process:' + el.dataset.process);
       }
       e.dataTransfer.effectAllowed = 'copy';
     });
+    el.addEventListener('dragend', () => { dragType = null; });
   });
 
   productBox.addEventListener('dragstart', e => {
     if (!productCollection) { e.preventDefault(); return; }
+    dragType = 'product';
     e.dataTransfer.setData('text/plain', 'product');
     e.dataTransfer.effectAllowed = 'copyMove';
   });
+  productBox.addEventListener('dragend', () => { dragType = null; });
 
   sourceBox.addEventListener('dragstart', e => {
     if (!sourceCollection) { e.preventDefault(); return; }
+    dragType = 'source';
     e.dataTransfer.setData('text/plain', 'source');
     e.dataTransfer.effectAllowed = 'move';
   });
+  sourceBox.addEventListener('dragend', () => { dragType = null; });
 
   processBox.addEventListener('dragstart', e => {
     if (!processId) { e.preventDefault(); return; }
+    dragType = 'boxprocess';
     e.dataTransfer.setData('text/plain', 'boxprocess');
     e.dataTransfer.effectAllowed = 'move';
   });
+  processBox.addEventListener('dragend', () => { dragType = null; });
 
-  function addDropZone(el, acceptFn) {
+  function addDropZone(el, acceptFn, rejectTest) {
     el.addEventListener('dragover', e => {
       e.preventDefault();
-      el.classList.add('drag-over');
+      if (rejectTest && rejectTest()) {
+        el.classList.add('drag-reject');
+        el.classList.remove('drag-over');
+      } else {
+        el.classList.add('drag-over');
+        el.classList.remove('drag-reject');
+      }
     });
     el.addEventListener('dragleave', e => {
-      if (!el.contains(e.relatedTarget)) el.classList.remove('drag-over');
+      if (!el.contains(e.relatedTarget)) {
+        el.classList.remove('drag-over');
+        el.classList.remove('drag-reject');
+      }
     });
     el.addEventListener('drop', e => {
       e.preventDefault();
       e.stopPropagation();
+      const rejected = el.classList.contains('drag-reject');
       el.classList.remove('drag-over');
+      el.classList.remove('drag-reject');
+      if (rejected) { sfxReject(); return; }
       acceptFn(e.dataTransfer.getData('text/plain'));
     });
   }
 
   addDropZone(sourceBox, data => {
     if (data === 'rock') {
+      sfxDrop();
       setSource(RockCollection.fromRock(baseRock));
     } else if (data === 'product' && productCollection) {
       const coll = productCollection.clone();
@@ -237,29 +282,31 @@
         setSource(coll);
       }
     }
-  });
+  }, () => dragType === 'process');
 
   addDropZone(processBox, data => {
-    if (data.startsWith('process:')) setProcess(data.split(':')[1]);
+    if (data.startsWith('process:')) { sfxDrop(); setProcess(data.split(':')[1]); }
   });
 
   addDropZone(saveZone, data => {
-    if (data === 'product' && productCollection)
+    if (data === 'product' && productCollection) {
+      sfxDrop();
       saveMaterial(productCollection.clone());
+    }
   });
 
   // Trash can
   addDropZone(trashCan, data => {
     if (data === 'product') {
-      setProduct(null);
+      sfxTrash(); setProduct(null);
     } else if (data === 'source') {
-      setSource(null);
+      sfxTrash(); setSource(null);
     } else if (data === 'boxprocess') {
-      setProcess(null);
+      sfxTrash(); setProcess(null);
     } else if (data.startsWith('saved:')) {
       const idx = parseInt(data.split(':')[1]);
       const el = savedDiv.querySelector('[data-saved-index="' + idx + '"');
-      if (el) { el.remove(); savedMaterials[idx] = null; }
+      if (el) { sfxTrash(); el.remove(); savedMaterials[idx] = null; }
     }
   });
 
@@ -306,6 +353,7 @@
 
   function finishAnimation(resultColl, callback) {
     resultColl.render(forgeAnimCanvas, false);
+    sfxDone();
     setTimeout(() => {
       forgeOverlay.classList.remove('active');
       callback();
@@ -349,11 +397,31 @@
 
   /* ── Gold Plating: wave of gold sweeps top→bottom ── */
   function animateGoldPlating(sourceColl, resultColl, finish) {
-    const changes = getPixelChanges(sourceColl, resultColl);
-    changes.sort((a, b) => a.y - b.y || a.x - b.x);
+    // Work at the result's dimensions from frame 1 so position stays stable
+    const work = resultColl.clone();
 
-    const work = sourceColl.clone();
-    const total = changes.length;
+    // Find new gold border pixels (not present in source) and hide them
+    const goldPixels = [];
+    for (let i = 0; i < resultColl.pieces.length; i++) {
+      if (!sourceColl.pieces[i].selected) continue;
+      const src = sourceColl.pieces[i].rock;
+      const res = resultColl.pieces[i].rock;
+      for (let y = 0; y < res.h; y++)
+        for (let x = 0; x < res.w; x++) {
+          const p = res.grid[y][x];
+          if (!p) continue;
+          // Original pixels sit at offset (1,1) in the expanded grid
+          const ox = x - 1, oy = y - 1;
+          const isOriginal = ox >= 0 && ox < src.w && oy >= 0 && oy < src.h && src.grid[oy][ox];
+          if (!isOriginal) {
+            goldPixels.push({ pi: i, x, y, mat: p.mat, shade: p.shade });
+            work.pieces[i].rock.grid[y][x] = null; // hide initially
+          }
+        }
+    }
+    goldPixels.sort((a, b) => a.y - b.y || a.x - b.x);
+
+    const total = goldPixels.length;
     const frames = 50;
     const batch = Math.max(1, Math.ceil(total / frames));
     let idx = 0;
@@ -361,15 +429,14 @@
     function frame() {
       const end = Math.min(idx + batch, total);
       for (let i = idx; i < end; i++) {
-        const c = changes[i];
+        const c = goldPixels[i];
         work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
       }
       work.render(forgeAnimCanvas, false);
 
-      // spawn golden sparkles
       if (end > idx) {
         const { rect, ds } = canvasScreenPos();
-        const last = changes[end - 1];
+        const last = goldPixels[end - 1];
         const b = work._bounds[last.pi];
         if (b) {
           const s = work._scale || 4;
@@ -590,6 +657,7 @@
     if (!sourceCollection.hasSelection()) return;
     forgeBtn.disabled = true;
 
+    sfxForge();
     const pColor = PROCESS_COLORS[processId] || '#fff';
     const rect = forgeBtn.getBoundingClientRect();
     spawnParticles(rect.left + rect.width / 2, rect.top + rect.height / 2, pColor, 50);
