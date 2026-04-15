@@ -354,6 +354,153 @@ h1 {
   animation: blink 1.5s step-start infinite;
 }
 
+/* ── Mobile touch selection highlight ── */
+.sidebar-item.touch-selected {
+  border-color: #e94560 !important;
+  box-shadow: 0 0 12px rgba(233, 69, 96, 0.5);
+}
+
+.box.touch-target {
+  border-color: #e94560;
+  box-shadow: 0 0 16px rgba(233, 69, 96, 0.3);
+  animation: blink 1s step-start infinite;
+}
+
+/* ── Mobile responsive ── */
+@media (max-width: 700px) {
+  #app {
+    flex-direction: column;
+  }
+
+  #sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 4px solid #0f3460;
+    padding: 8px;
+    gap: 6px;
+    overflow-y: visible;
+    overflow-x: auto;
+    align-items: center;
+  }
+
+  #sidebar h2 {
+    font-size: 8px;
+    width: 100%;
+  }
+
+  .sidebar-item {
+    padding: 4px 6px;
+    font-size: 7px;
+  }
+
+  .sidebar-item canvas {
+    width: 40px;
+    height: 40px;
+  }
+
+  .process-icon {
+    font-size: 16px;
+  }
+
+  #save-zone {
+    font-size: 6px;
+    padding: 6px 4px;
+  }
+
+  #main {
+    padding: 12px 8px;
+    gap: 12px;
+  }
+
+  h1 {
+    font-size: 12px;
+  }
+
+  #forge-area {
+    gap: 8px;
+  }
+
+  .box {
+    width: 100px;
+    height: 110px;
+  }
+
+  .box canvas {
+    width: 80px;
+    height: 80px;
+  }
+
+  .process-box-icon {
+    font-size: 32px;
+    width: 48px;
+    height: 48px;
+  }
+
+  .process-box-name {
+    font-size: 7px;
+  }
+
+  .arrow {
+    font-size: 20px;
+    padding-bottom: 12px;
+  }
+
+  .box-label {
+    font-size: 6px;
+    bottom: -12px;
+  }
+
+  .box-hint {
+    font-size: 6px;
+  }
+
+  #forge-btn {
+    font-size: 10px;
+    padding: 10px 20px;
+  }
+
+  #history {
+    font-size: 6px;
+  }
+
+  #history span {
+    padding: 2px 4px;
+  }
+
+  #forge-anim-canvas {
+    width: 200px;
+    height: 200px;
+  }
+
+  #forge-anim-label {
+    font-size: 9px;
+  }
+
+  #trash-can {
+    width: 48px;
+    height: 54px;
+    font-size: 20px;
+    bottom: 10px;
+    right: 10px;
+  }
+
+  #trash-can span {
+    font-size: 5px;
+  }
+
+  .saved-material canvas {
+    width: 40px;
+    height: 40px;
+  }
+
+  #source-box.has-multi::after {
+    font-size: 5px;
+    top: -12px;
+  }
+}
+
 /* ── Particles ── */
 #particle-canvas {
   position: fixed;

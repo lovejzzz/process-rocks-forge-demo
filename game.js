@@ -677,4 +677,150 @@
   /* ── Double-click to clear ── */
   processBox.addEventListener('dblclick', () => setProcess(null));
 
+  /* ═══════════════════════════════════════════
+     MOBILE TOUCH SUPPORT
+     ═══════════════════════════════════════════ */
+
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+  // Resume AudioContext on first user gesture (required by iOS Safari)
+  function resumeAudio() {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    document.removeEventListener('touchstart', resumeAudio);
+    document.removeEventListener('click', resumeAudio);
+  }
+  document.addEventListener('touchstart', resumeAudio);
+  document.addEventListener('click', resumeAudio);
+
+  if (isTouchDevice) {
+    let touchHeld = null;  // { type, data, el }
+
+    function clearTouchHeld() {
+      if (touchHeld && touchHeld.el) touchHeld.el.classList.remove('touch-selected');
+      touchHeld = null;
+      // Remove target highlights
+      [sourceBox, processBox, trashCan, saveZone].forEach(
+        b => b.classList.remove('touch-target')
+      );
+    }
+
+    function setTouchHeld(type, data, el) {
+      clearTouchHeld();
+      touchHeld = { type, data, el };
+      if (el) el.classList.add('touch-selected');
+      // Highlight valid targets
+      if (type === 'rock' || type === 'product' || type === 'saved') {
+        sourceBox.classList.add('touch-target');
+        if (type === 'product') saveZone.classList.add('touch-target');
+        trashCan.classList.add('touch-target');
+      } else if (type === 'process') {
+        processBox.classList.add('touch-target');
+        trashCan.classList.add('touch-target');
+      }
+    }
+
+    // Tap sidebar items to pick up
+    document.querySelectorAll('.sidebar-item[data-type]').forEach(el => {
+      el.addEventListener('click', e => {
+        e.stopPropagation();
+        const type = el.dataset.type;
+        if (type === 'rock') {
+          setTouchHeld('rock', 'rock', el);
+        } else if (type === 'process') {
+          setTouchHeld('process', 'process:' + el.dataset.process, el);
+        }
+        sfxDrop();
+      });
+    });
+
+    // Tap product box to pick up product
+    productBox.addEventListener('click', e => {
+      if (!productCollection) return;
+      e.stopPropagation();
+      setTouchHeld('product', 'product', productBox);
+      sfxDrop();
+    });
+
+    // Tap source box to place held item
+    sourceBox.addEventListener('click', e => {
+      if (!touchHeld) return;
+      const data = touchHeld.data;
+      if (data === 'rock') {
+        sfxDrop();
+        setSource(RockCollection.fromRock(baseRock));
+        clearTouchHeld();
+      } else if (data === 'product' && productCollection) {
+        sfxDrop();
+        const coll = productCollection.clone();
+        coll.selectAll();
+        setSource(coll);
+        setProduct(null);
+        clearTouchHeld();
+      } else if (typeof data === 'string' && data.startsWith('saved:')) {
+        const idx = parseInt(data.split(':')[1]);
+        if (savedMaterials[idx]) {
+          sfxDrop();
+          const coll = savedMaterials[idx].clone();
+          coll.selectAll();
+          setSource(coll);
+          clearTouchHeld();
+        }
+      } else if (touchHeld.type === 'process') {
+        sfxReject();
+        clearTouchHeld();
+      }
+    });
+
+    // Tap process box to place held process
+    processBox.addEventListener('click', e => {
+      if (!touchHeld) return;
+      if (touchHeld.type === 'process') {
+        sfxDrop();
+        setProcess(touchHeld.data.split(':')[1]);
+        clearTouchHeld();
+      }
+    });
+
+    // Tap save zone
+    saveZone.addEventListener('click', e => {
+      if (!touchHeld) return;
+      if (touchHeld.type === 'product' && productCollection) {
+        sfxDrop();
+        saveMaterial(productCollection.clone());
+        clearTouchHeld();
+      }
+    });
+
+    // Tap trash
+    trashCan.addEventListener('click', e => {
+      if (!touchHeld) return;
+      e.stopPropagation();
+      if (touchHeld.type === 'product') {
+        sfxTrash(); setProduct(null);
+      } else if (touchHeld.type === 'process' && processId) {
+        sfxTrash(); setProcess(null);
+      } else if (touchHeld.data && touchHeld.data.startsWith('saved:')) {
+        const idx = parseInt(touchHeld.data.split(':')[1]);
+        const el = savedDiv.querySelector('[data-saved-index="' + idx + '"]');
+        if (el) { sfxTrash(); el.remove(); savedMaterials[idx] = null; }
+      }
+      clearTouchHeld();
+    });
+
+    // Tap saved materials to pick up
+    savedDiv.addEventListener('click', e => {
+      const item = e.target.closest('.saved-material');
+      if (!item) return;
+      e.stopPropagation();
+      const idx = item.dataset.savedIndex;
+      setTouchHeld('saved', 'saved:' + idx, item);
+      sfxDrop();
+    });
+
+    // Tap empty area to cancel
+    document.addEventListener('click', () => {
+      if (touchHeld) clearTouchHeld();
+    });
+  }
+
 })();
