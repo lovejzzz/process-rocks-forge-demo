@@ -354,18 +354,6 @@ h1 {
   animation: blink 1.5s step-start infinite;
 }
 
-/* ── Mobile touch selection highlight ── */
-.sidebar-item.touch-selected {
-  border-color: #e94560 !important;
-  box-shadow: 0 0 12px rgba(233, 69, 96, 0.5);
-}
-
-.box.touch-target {
-  border-color: #e94560;
-  box-shadow: 0 0 16px rgba(233, 69, 96, 0.3);
-  animation: blink 1s step-start infinite;
-}
-
 /* ── Mobile responsive ── */
 @media (max-width: 700px) {
   #app {

@@ -678,10 +678,8 @@
   processBox.addEventListener('dblclick', () => setProcess(null));
 
   /* ═══════════════════════════════════════════
-     MOBILE TOUCH SUPPORT
+     MOBILE TOUCH-DRAG SUPPORT
      ═══════════════════════════════════════════ */
-
-  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
   // Resume AudioContext on first user gesture (required by iOS Safari)
   function resumeAudio() {
@@ -692,135 +690,144 @@
   document.addEventListener('touchstart', resumeAudio);
   document.addEventListener('click', resumeAudio);
 
-  if (isTouchDevice) {
-    let touchHeld = null;  // { type, data, el }
+  (function initTouchDrag() {
+    let ghost = null;
+    let touchData = null;
+    let currentOver = null;
 
-    function clearTouchHeld() {
-      if (touchHeld && touchHeld.el) touchHeld.el.classList.remove('touch-selected');
-      touchHeld = null;
-      // Remove target highlights
-      [sourceBox, processBox, trashCan, saveZone].forEach(
-        b => b.classList.remove('touch-target')
-      );
+    const dropZones = [
+      { el: sourceBox,   accept: d => d === 'rock' || d === 'product' || d.startsWith('saved:') },
+      { el: processBox,  accept: d => d.startsWith('process:') },
+      { el: saveZone,    accept: d => d === 'product' },
+      { el: trashCan,    accept: d => true },
+    ];
+
+    function createGhost(el) {
+      const g = el.cloneNode(true);
+      g.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;opacity:0.85;' +
+        'transform:scale(0.8);transition:none;width:' + el.offsetWidth + 'px;';
+      document.body.appendChild(g);
+      return g;
     }
 
-    function setTouchHeld(type, data, el) {
-      clearTouchHeld();
-      touchHeld = { type, data, el };
-      if (el) el.classList.add('touch-selected');
-      // Highlight valid targets
-      if (type === 'rock' || type === 'product' || type === 'saved') {
-        sourceBox.classList.add('touch-target');
-        if (type === 'product') saveZone.classList.add('touch-target');
-        trashCan.classList.add('touch-target');
-      } else if (type === 'process') {
-        processBox.classList.add('touch-target');
-        trashCan.classList.add('touch-target');
+    function moveGhost(x, y) {
+      if (!ghost) return;
+      ghost.style.left = (x - ghost.offsetWidth / 2) + 'px';
+      ghost.style.top  = (y - ghost.offsetHeight / 2) + 'px';
+    }
+
+    function hitZone(x, y) {
+      for (const z of dropZones) {
+        const r = z.el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return z;
+      }
+      return null;
+    }
+
+    function highlightZone(zone) {
+      if (currentOver === zone) return;
+      if (currentOver) currentOver.el.classList.remove('drag-over', 'drag-reject');
+      currentOver = zone;
+      if (zone) {
+        if (zone.accept(touchData)) zone.el.classList.add('drag-over');
+        else zone.el.classList.add('drag-reject');
       }
     }
 
-    // Tap sidebar items to pick up
-    document.querySelectorAll('.sidebar-item[data-type]').forEach(el => {
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        const type = el.dataset.type;
-        if (type === 'rock') {
-          setTouchHeld('rock', 'rock', el);
-        } else if (type === 'process') {
-          setTouchHeld('process', 'process:' + el.dataset.process, el);
+    function handleDrop(zone) {
+      if (!zone || !zone.accept(touchData)) return;
+      const data = touchData;
+      // Reuse same logic as desktop drop handlers
+      if (zone.el === sourceBox) {
+        if (data === 'rock') {
+          sfxDrop(); setSource(RockCollection.fromRock(baseRock));
+        } else if (data === 'product' && productCollection) {
+          sfxDrop();
+          const coll = productCollection.clone(); coll.selectAll();
+          setSource(coll); setProduct(null);
+        } else if (data.startsWith('saved:')) {
+          const idx = parseInt(data.split(':')[1]);
+          if (savedMaterials[idx]) {
+            sfxDrop();
+            const coll = savedMaterials[idx].clone(); coll.selectAll();
+            setSource(coll);
+          }
         }
-        sfxDrop();
+      } else if (zone.el === processBox) {
+        if (data.startsWith('process:')) { sfxDrop(); setProcess(data.split(':')[1]); }
+      } else if (zone.el === saveZone) {
+        if (data === 'product' && productCollection) {
+          sfxDrop(); saveMaterial(productCollection.clone());
+        }
+      } else if (zone.el === trashCan) {
+        if (data === 'product') { sfxTrash(); setProduct(null); }
+        else if (data === 'source') { sfxTrash(); setSource(null); }
+        else if (data === 'boxprocess') { sfxTrash(); setProcess(null); }
+        else if (data.startsWith('saved:')) {
+          const idx = parseInt(data.split(':')[1]);
+          const el = savedDiv.querySelector('[data-saved-index="' + idx + '"]');
+          if (el) { sfxTrash(); el.remove(); savedMaterials[idx] = null; }
+        }
+      }
+    }
+
+    function registerDraggable(el, dataFn) {
+      el.addEventListener('touchstart', e => {
+        const d = dataFn();
+        if (!d) return;
+        e.preventDefault();
+        touchData = d;
+        const touch = e.touches[0];
+        ghost = createGhost(el);
+        moveGhost(touch.clientX, touch.clientY);
+      }, { passive: false });
+    }
+
+    // Register all draggable sources
+    document.querySelectorAll('.sidebar-item[data-type]').forEach(el => {
+      registerDraggable(el, () => {
+        const type = el.dataset.type;
+        if (type === 'rock') return 'rock';
+        if (type === 'process') return 'process:' + el.dataset.process;
+        return null;
       });
     });
 
-    // Tap product box to pick up product
-    productBox.addEventListener('click', e => {
-      if (!productCollection) return;
-      e.stopPropagation();
-      setTouchHeld('product', 'product', productBox);
-      sfxDrop();
-    });
+    registerDraggable(productBox, () => productCollection ? 'product' : null);
+    registerDraggable(sourceBox,  () => sourceCollection ? 'source' : null);
+    registerDraggable(processBox, () => processId ? 'boxprocess' : null);
 
-    // Tap source box to place held item
-    sourceBox.addEventListener('click', e => {
-      if (!touchHeld) return;
-      const data = touchHeld.data;
-      if (data === 'rock') {
-        sfxDrop();
-        setSource(RockCollection.fromRock(baseRock));
-        clearTouchHeld();
-      } else if (data === 'product' && productCollection) {
-        sfxDrop();
-        const coll = productCollection.clone();
-        coll.selectAll();
-        setSource(coll);
-        setProduct(null);
-        clearTouchHeld();
-      } else if (typeof data === 'string' && data.startsWith('saved:')) {
-        const idx = parseInt(data.split(':')[1]);
-        if (savedMaterials[idx]) {
-          sfxDrop();
-          const coll = savedMaterials[idx].clone();
-          coll.selectAll();
-          setSource(coll);
-          clearTouchHeld();
-        }
-      } else if (touchHeld.type === 'process') {
-        sfxReject();
-        clearTouchHeld();
-      }
-    });
-
-    // Tap process box to place held process
-    processBox.addEventListener('click', e => {
-      if (!touchHeld) return;
-      if (touchHeld.type === 'process') {
-        sfxDrop();
-        setProcess(touchHeld.data.split(':')[1]);
-        clearTouchHeld();
-      }
-    });
-
-    // Tap save zone
-    saveZone.addEventListener('click', e => {
-      if (!touchHeld) return;
-      if (touchHeld.type === 'product' && productCollection) {
-        sfxDrop();
-        saveMaterial(productCollection.clone());
-        clearTouchHeld();
-      }
-    });
-
-    // Tap trash
-    trashCan.addEventListener('click', e => {
-      if (!touchHeld) return;
-      e.stopPropagation();
-      if (touchHeld.type === 'product') {
-        sfxTrash(); setProduct(null);
-      } else if (touchHeld.type === 'process' && processId) {
-        sfxTrash(); setProcess(null);
-      } else if (touchHeld.data && touchHeld.data.startsWith('saved:')) {
-        const idx = parseInt(touchHeld.data.split(':')[1]);
-        const el = savedDiv.querySelector('[data-saved-index="' + idx + '"]');
-        if (el) { sfxTrash(); el.remove(); savedMaterials[idx] = null; }
-      }
-      clearTouchHeld();
-    });
-
-    // Tap saved materials to pick up
-    savedDiv.addEventListener('click', e => {
+    // Saved materials are dynamic — use delegation
+    savedDiv.addEventListener('touchstart', e => {
       const item = e.target.closest('.saved-material');
       if (!item) return;
-      e.stopPropagation();
-      const idx = item.dataset.savedIndex;
-      setTouchHeld('saved', 'saved:' + idx, item);
-      sfxDrop();
-    });
+      e.preventDefault();
+      touchData = 'saved:' + item.dataset.savedIndex;
+      const touch = e.touches[0];
+      ghost = createGhost(item);
+      moveGhost(touch.clientX, touch.clientY);
+    }, { passive: false });
 
-    // Tap empty area to cancel
-    document.addEventListener('click', () => {
-      if (touchHeld) clearTouchHeld();
+    // Global touchmove & touchend
+    document.addEventListener('touchmove', e => {
+      if (!ghost) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      moveGhost(touch.clientX, touch.clientY);
+      highlightZone(hitZone(touch.clientX, touch.clientY));
+    }, { passive: false });
+
+    document.addEventListener('touchend', e => {
+      if (!ghost) return;
+      if (currentOver) {
+        currentOver.el.classList.remove('drag-over', 'drag-reject');
+        handleDrop(currentOver);
+      }
+      ghost.remove();
+      ghost = null;
+      touchData = null;
+      currentOver = null;
     });
-  }
+  })();
 
 })();
