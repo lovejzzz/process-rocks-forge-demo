@@ -103,29 +103,36 @@
 
   /* ── Helpers ── */
   const PROCESS_NAMES = {
-    flip:        'Flip',
-    mosaic_ruby: 'Mosaic Ruby',
-    gold_plated: 'Gold Plated',
-    split_half:  'Split Half',
+    flip:           'Flip',
+    mosaic_ruby:    'Mosaic Ruby',
+    gold_plated:    'Gold Plated',
+    split_half:     'Split Half',
+    emerald_filler: 'Emerald Filler',
   };
 
   const PROCESS_COLORS = {
-    flip:        '#e0e0e0',
-    mosaic_ruby: '#dc143c',
-    gold_plated: '#ffd700',
-    split_half:  '#88ccff',
+    flip:           '#e0e0e0',
+    mosaic_ruby:    '#dc143c',
+    gold_plated:    '#ffd700',
+    split_half:     '#88ccff',
+    emerald_filler: '#2fdc8a',
   };
 
   const PROCESS_ICONS = {
-    flip:        { symbol: '↔', cls: '' },
-    mosaic_ruby: { symbol: '◆', cls: 'ruby-icon' },
-    gold_plated: { symbol: '✦', cls: 'gold-icon' },
-    split_half:  { symbol: '⫽', cls: '' },
+    flip:           { symbol: '↔', cls: '' },
+    mosaic_ruby:    { symbol: '◆', cls: 'ruby-icon' },
+    gold_plated:    { symbol: '✦', cls: 'gold-icon' },
+    split_half:     { symbol: '⫽', cls: '' },
+    emerald_filler: { symbol: '❖', cls: 'emerald-icon' },
   };
 
   function updateForgeBtn() {
     const hasSelected = sourceCollection && sourceCollection.hasSelection();
-    forgeBtn.disabled = !(hasSelected && processId);
+    let valid = hasSelected && processId;
+    if (valid && processId === 'emerald_filler') {
+      valid = sourceCollection.hasAdjacentSelected();
+    }
+    forgeBtn.disabled = !valid;
   }
 
   function renderSource() {
@@ -368,10 +375,11 @@
     const finish = () => finishAnimation(resultColl, callback);
 
     switch (pid) {
-      case 'gold_plated': animateGoldPlating(sourceColl, resultColl, finish); break;
-      case 'mosaic_ruby': animateRubyMosaic(sourceColl, resultColl, finish); break;
-      case 'flip':        animateFlip(sourceColl, resultColl, finish); break;
-      case 'split_half':  animateSplit(sourceColl, resultColl, finish); break;
+      case 'gold_plated':    animateGoldPlating(sourceColl, resultColl, finish); break;
+      case 'mosaic_ruby':    animateRubyMosaic(sourceColl, resultColl, finish); break;
+      case 'flip':           animateFlip(sourceColl, resultColl, finish); break;
+      case 'split_half':     animateSplit(sourceColl, resultColl, finish); break;
+      case 'emerald_filler': animateEmeraldFiller(sourceColl, resultColl, finish); break;
       default: finish();
     }
   }
@@ -641,6 +649,89 @@
         }
 
         animCtx.globalAlpha = eased;
+        animCtx.drawImage(offAfter, 0, 0);
+        animCtx.globalAlpha = 1;
+      }
+
+      if (t < 1) requestAnimationFrame(frame);
+      else finish();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ── Emerald Filler: selected pieces pull together, emerald floods the gaps ── */
+  function animateEmeraldFiller(sourceColl, resultColl, finish) {
+    const offBefore = document.createElement('canvas');
+    offBefore.width = 400; offBefore.height = 400;
+    sourceColl.render(offBefore, false);
+    const bounds = sourceColl._bounds.map(b => ({ ...b }));
+
+    const offAfter = document.createElement('canvas');
+    offAfter.width = 400; offAfter.height = 400;
+    resultColl.render(offAfter, false);
+
+    // Bounding box covering all selected source pieces (where emerald will flow).
+    let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
+    for (let i = 0; i < sourceColl.pieces.length; i++) {
+      if (!sourceColl.pieces[i].selected) continue;
+      const b = bounds[i];
+      if (b.x < sxMin) sxMin = b.x;
+      if (b.y < syMin) syMin = b.y;
+      if (b.x + b.w > sxMax) sxMax = b.x + b.w;
+      if (b.y + b.h > syMax) syMax = b.y + b.h;
+    }
+    const hasSelBox = sxMax > sxMin;
+
+    const duration = 1100;
+    const start = performance.now();
+
+    function frame(now) {
+      const t = Math.min((now - start) / duration, 1);
+      animCtx.clearRect(0, 0, 400, 400);
+
+      if (t < 0.45) {
+        // Phase 1: emerald glow grows across the selected cluster.
+        animCtx.drawImage(offBefore, 0, 0);
+        if (hasSelBox) {
+          const p = t / 0.45;
+          animCtx.save();
+          animCtx.globalAlpha = 0.55 * p;
+          animCtx.fillStyle = '#2fdc8a';
+          animCtx.fillRect(sxMin - 4, syMin - 4,
+                           sxMax - sxMin + 8, syMax - syMin + 8);
+          animCtx.restore();
+
+          if (Math.random() < 0.5) {
+            const { rect, ds } = canvasScreenPos();
+            const px = sxMin + Math.random() * (sxMax - sxMin);
+            const py = sxMin !== sxMax ? syMin + Math.random() * (syMax - syMin) : syMin;
+            spawnParticles(
+              rect.left + px * ds,
+              rect.top  + py * ds,
+              '#2fdc8a', 3
+            );
+          }
+        }
+      } else if (t < 0.6) {
+        // Phase 2: bright flash across the cluster.
+        animCtx.drawImage(offBefore, 0, 0);
+        const flash = Math.sin((t - 0.45) / 0.15 * Math.PI) * 0.85;
+        animCtx.save();
+        animCtx.globalAlpha = flash;
+        animCtx.fillStyle = '#b9ffe0';
+        if (hasSelBox) {
+          animCtx.fillRect(sxMin - 8, syMin - 8,
+                           sxMax - sxMin + 16, syMax - syMin + 16);
+        } else {
+          animCtx.fillRect(0, 0, 400, 400);
+        }
+        animCtx.restore();
+      } else {
+        // Phase 3: crossfade before → after.
+        const p = (t - 0.6) / 0.4;
+        animCtx.globalAlpha = 1 - p;
+        animCtx.drawImage(offBefore, 0, 0);
+        animCtx.globalAlpha = p;
         animCtx.drawImage(offAfter, 0, 0);
         animCtx.globalAlpha = 1;
       }

@@ -78,6 +78,10 @@ body {
 
 .ruby-icon { color: #dc143c; }
 .gold-icon { color: #ffd700; }
+.emerald-icon {
+  color: #2fdc8a;
+  text-shadow: 0 0 4px rgba(47, 220, 138, 0.6);
+}
 
 /* ── Main area ── */
 #main {
