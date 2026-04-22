@@ -659,7 +659,8 @@
     requestAnimationFrame(frame);
   }
 
-  /* ── Emerald Filler: gap between selected pieces blinks emerald, then crossfade ── */
+  /* ── Emerald Filler: gap between adjacent pieces blinks emerald row-by-row,
+     then solidifies, flashes, and crossfades to the merged result. ── */
   function animateEmeraldFiller(sourceColl, resultColl, finish) {
     const offBefore = document.createElement('canvas');
     offBefore.width = 400; offBefore.height = 400;
@@ -671,54 +672,106 @@
     offAfter.width = 400; offAfter.height = 400;
     resultColl.render(offAfter, false);
 
-    // Seam rect for each adjacent pair of selected pieces — the visible gap
-    // plus one source-pixel column of overlap on each side.
-    const seams = [];
-    const padX = scale;
+    // For each adjacent selected pair, build a list of one-row-tall emerald
+    // cells that span the gap. We only emit a row where either piece has a
+    // pixel at its facing edge, so the emerald traces the rock's silhouette
+    // instead of filling the empty space above/below it.
+    const cells = [];
     for (let i = 0; i < sourceColl.pieces.length - 1; i++) {
-      if (!(sourceColl.pieces[i].selected && sourceColl.pieces[i + 1].selected)) continue;
-      const a = bounds[i], b = bounds[i + 1];
-      const top = Math.min(a.y, b.y);
-      const bot = Math.max(a.y + a.h, b.y + b.h);
-      seams.push({
-        x: a.x + a.w - padX,
-        y: top,
-        w: (b.x - (a.x + a.w)) + padX * 2,
-        h: bot - top,
-      });
+      const a = sourceColl.pieces[i];
+      const b = sourceColl.pieces[i + 1];
+      if (!(a.selected && b.selected)) continue;
+      const bA = bounds[i], bB = bounds[i + 1];
+      const aRock = a.rock, bRock = b.rock;
+
+      const rowYs = new Set();
+      for (let yy = 0; yy < aRock.h; yy++) {
+        if (aRock.grid[yy][aRock.w - 1]) rowYs.add(bA.y + yy * scale);
+      }
+      for (let yy = 0; yy < bRock.h; yy++) {
+        if (bRock.grid[yy][0]) rowYs.add(bB.y + yy * scale);
+      }
+
+      const gapStart = bA.x + bA.w;
+      const gapEnd   = bB.x;
+      for (const sy of rowYs) {
+        cells.push({
+          x: gapStart - scale,                     // overlap 1 col into A
+          y: sy,
+          w: (gapEnd - gapStart) + scale * 2,      // gap + 1 col of B
+          h: scale,
+        });
+      }
     }
 
-    const duration = 1100;
+    const duration = 1500;
     const start = performance.now();
+
+    function drawCells(alpha, glow) {
+      animCtx.save();
+      if (glow > 0) {
+        animCtx.shadowColor = '#2fdc8a';
+        animCtx.shadowBlur  = glow;
+      }
+      animCtx.fillStyle   = '#2fdc8a';
+      animCtx.globalAlpha = alpha;
+      for (const c of cells) animCtx.fillRect(c.x, c.y, c.w, c.h);
+      animCtx.restore();
+    }
 
     function frame(now) {
       const t = Math.min((now - start) / duration, 1);
       animCtx.clearRect(0, 0, 400, 400);
 
-      if (t < 0.7) {
-        // Blink phase: source stays put, the gap pulses emerald ~3 times.
+      if (t < 0.55) {
+        // Phase 1: source stays put. Gap pulses emerald ~3 times with halo.
         animCtx.drawImage(offBefore, 0, 0);
-        const blink = (Math.sin(t / 0.7 * Math.PI * 6) + 1) / 2;
-        animCtx.save();
-        animCtx.fillStyle = '#2fdc8a';
-        animCtx.globalAlpha = 0.9 * blink;
-        for (const s of seams) animCtx.fillRect(s.x, s.y, s.w, s.h);
-        animCtx.restore();
+        const phase = t / 0.55;
+        const blink = (Math.sin(phase * Math.PI * 6) + 1) / 2;
+        drawCells(0.55 + 0.45 * blink, 18 * blink);
 
-        if (Math.random() < 0.4 && seams.length) {
+        if (blink > 0.75 && Math.random() < 0.5 && cells.length) {
           const { rect, ds } = canvasScreenPos();
-          const s = seams[Math.floor(Math.random() * seams.length)];
+          const c = cells[Math.floor(Math.random() * cells.length)];
           spawnParticles(
-            rect.left + (s.x + s.w / 2) * ds,
-            rect.top  + (s.y + Math.random() * s.h) * ds,
+            rect.left + (c.x + c.w / 2) * ds,
+            rect.top  + (c.y + c.h / 2) * ds,
             '#2fdc8a', 2
           );
         }
+      } else if (t < 0.8) {
+        // Phase 2: emerald solidifies in the gap with a sharp white pop.
+        animCtx.drawImage(offBefore, 0, 0);
+        drawCells(1, 22);
+        const phase = (t - 0.55) / 0.25;
+        const flash = Math.max(0, 1 - phase * 2.5);
+        if (flash > 0) {
+          animCtx.save();
+          animCtx.globalAlpha = flash;
+          animCtx.fillStyle   = '#eaffe8';
+          for (const c of cells) {
+            animCtx.fillRect(c.x - 2, c.y - 1, c.w + 4, c.h + 2);
+          }
+          animCtx.restore();
+
+          if (phase < 0.15 && cells.length) {
+            const { rect, ds } = canvasScreenPos();
+            for (let k = 0; k < 3; k++) {
+              const c = cells[Math.floor(Math.random() * cells.length)];
+              spawnParticles(
+                rect.left + (c.x + c.w / 2) * ds,
+                rect.top  + (c.y + c.h / 2) * ds,
+                '#b9ffe0', 3
+              );
+            }
+          }
+        }
       } else {
-        // Crossfade before → after.
-        const p = (t - 0.7) / 0.3;
+        // Phase 3: crossfade to merged result while keeping the emerald lit.
+        const p = (t - 0.8) / 0.2;
         animCtx.globalAlpha = 1 - p;
         animCtx.drawImage(offBefore, 0, 0);
+        drawCells(1 - p, 18 * (1 - p));
         animCtx.globalAlpha = p;
         animCtx.drawImage(offAfter, 0, 0);
         animCtx.globalAlpha = 1;
