@@ -224,19 +224,23 @@ class Rock {
     const EXTRA_PER_REFILL = 2;
 
     // 1. Figure out how many emerald columns to insert at each boundary.
+    //    A piece counts as "already emerald-filled" if it contains any emerald
+    //    anywhere — not just on the facing edge. Otherwise a Gold Plated pass
+    //    (which seals a gold border over the emerald seam) would hide the
+    //    history and the next Emerald Filler would merge gold-to-gold with no
+    //    emerald between the pieces.
+    const hasAnyEmerald = rk => {
+      for (let y = 0; y < rk.h; y++)
+        for (let x = 0; x < rk.w; x++) {
+          const c = rk.grid[y][x];
+          if (c && c.mat === MATERIAL.EMERALD) return true;
+        }
+      return false;
+    };
     const extras = [];
     for (let i = 0; i < rocks.length - 1; i++) {
-      const A = rocks[i], B = rocks[i + 1];
-      let aHasEmerald = false, bHasEmerald = false;
-      for (let y = 0; y < A.h && !aHasEmerald; y++) {
-        const c = A.grid[y][A.w - 1];
-        if (c && c.mat === MATERIAL.EMERALD) aHasEmerald = true;
-      }
-      for (let y = 0; y < B.h && !bHasEmerald; y++) {
-        const c = B.grid[y][0];
-        if (c && c.mat === MATERIAL.EMERALD) bHasEmerald = true;
-      }
-      extras.push((aHasEmerald || bHasEmerald) ? EXTRA_PER_REFILL : 0);
+      const refill = hasAnyEmerald(rocks[i]) || hasAnyEmerald(rocks[i + 1]);
+      extras.push(refill ? EXTRA_PER_REFILL : 0);
     }
 
     // 2. Compute merged canvas size.

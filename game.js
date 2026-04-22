@@ -13,26 +13,94 @@
 
   const baseRock = Rock.createBase();
 
-  /* ── 8-bit Sound Effects (Web Audio API) ── */
+  /* ── Sound (Web Audio) ──
+     Layered SFX: chord + filtered noise burst + optional bend.
+     Still 8-bit in spirit, but with more body so impacts feel weightier. */
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.9;
+  masterGain.connect(audioCtx.destination);
 
-  function playTone(freq, duration, type, vol) {
+  // Reusable noise buffer (~1s of white noise)
+  const NOISE_BUF = (() => {
+    const buf = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return buf;
+  })();
+
+  function playTone(freq, duration, type, vol, bend) {
+    const t0 = audioCtx.currentTime;
     const g = audioCtx.createGain();
-    g.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-    g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol || 0.15, t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    g.connect(masterGain);
     const o = audioCtx.createOscillator();
     o.type = type || 'square';
-    o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    o.frequency.setValueAtTime(freq, t0);
+    if (bend) o.frequency.exponentialRampToValueAtTime(Math.max(1, freq * bend), t0 + duration);
     o.connect(g);
-    o.start(); o.stop(audioCtx.currentTime + duration);
+    o.start(t0); o.stop(t0 + duration + 0.02);
   }
 
-  function sfxDrop()   { playTone(520, 0.06, 'square', 0.08); }
-  function sfxForge()  { playTone(330, 0.12, 'square', 0.08); }
-  function sfxDone()   { playTone(660, 0.1, 'square', 0.08); }
-  function sfxTrash()  { playTone(200, 0.1, 'square', 0.06); }
-  function sfxReject() { playTone(150, 0.08, 'square', 0.05); }
+  function playNoise(duration, vol, filterFreq, filterQ, filterType) {
+    const t0 = audioCtx.currentTime;
+    const src = audioCtx.createBufferSource();
+    src.buffer = NOISE_BUF;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = filterType || 'bandpass';
+    filt.frequency.value = filterFreq || 1200;
+    filt.Q.value = filterQ || 1;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(vol || 0.2, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    src.connect(filt).connect(g).connect(masterGain);
+    src.start(t0); src.stop(t0 + duration + 0.02);
+  }
+
+  function playChord(freqs, duration, type, vol) {
+    for (const f of freqs) playTone(f, duration, type, (vol || 0.1) / Math.sqrt(freqs.length));
+  }
+
+  function sfxDrop()   { playTone(520, 0.05, 'square', 0.06); playTone(780, 0.04, 'triangle', 0.04); }
+  function sfxForge()  {
+    playChord([220, 330, 440], 0.18, 'square', 0.08);
+    playNoise(0.12, 0.1, 900, 1.4);
+  }
+  function sfxDone()   {
+    playChord([660, 880, 1320], 0.22, 'triangle', 0.09);
+    playNoise(0.08, 0.05, 4000, 2, 'highpass');
+  }
+  function sfxTrash()  { playTone(200, 0.1, 'sawtooth', 0.06, 0.4); playNoise(0.08, 0.06, 400); }
+  function sfxReject() { playTone(150, 0.08, 'square', 0.05, 0.6); }
+
+  // Per-process forge SFX — layered to feel weightier.
+  function sfxProcess(pid) {
+    switch (pid) {
+      case 'gold_plated':
+        playChord([523, 659, 784, 1047], 0.35, 'triangle', 0.09);
+        playNoise(0.15, 0.05, 6000, 1.5, 'highpass');
+        break;
+      case 'mosaic_ruby':
+        playChord([349, 440, 523], 0.25, 'square', 0.08);
+        playNoise(0.18, 0.08, 1800, 3);
+        break;
+      case 'flip':
+        playTone(440, 0.25, 'sine', 0.12, 1.6);
+        playNoise(0.1, 0.06, 1500, 2);
+        break;
+      case 'split_half':
+        playNoise(0.3, 0.18, 2500, 4);
+        playTone(120, 0.4, 'sawtooth', 0.14, 0.25);
+        playChord([330, 660], 0.2, 'square', 0.07);
+        break;
+      case 'emerald_filler':
+        playChord([392, 523, 659, 784], 0.45, 'sine', 0.1);
+        playNoise(0.2, 0.06, 3200, 2.5, 'highpass');
+        break;
+    }
+  }
 
   /* ── DOM refs ── */
   const sourceBox      = document.getElementById('source-box');
@@ -45,14 +113,118 @@
   const sourceCanvas   = sourceBox.querySelector('canvas');
   const trashCan       = document.getElementById('trash-can');
   const forgeOverlay   = document.getElementById('forge-overlay');
+  const forgeStage     = document.getElementById('forge-stage');
+  const forgeFlash     = document.getElementById('forge-flash');
   const forgeAnimCanvas = document.getElementById('forge-anim-canvas');
   const forgeAnimLabel = document.getElementById('forge-anim-label');
   const animCtx        = forgeAnimCanvas.getContext('2d');
 
+  /* ── FX helpers ── */
+
+  // Easings.
+  const EASE = {
+    outCubic:  t => 1 - Math.pow(1 - t, 3),
+    inCubic:   t => t * t * t,
+    inOutCubic:t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+    outQuint:  t => 1 - Math.pow(1 - t, 5),
+    outBack:   t => 1 + 2.2 * Math.pow(t - 1, 3) + 1.2 * Math.pow(t - 1, 2),
+    outElastic:t => {
+      if (t === 0 || t === 1) return t;
+      const c = (2 * Math.PI) / 3;
+      return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c) + 1;
+    },
+  };
+
+  // Screen shake (applied to the forge stage via transform).
+  const shake = { x: 0, y: 0, mag: 0, decay: 0.88 };
+  function kickShake(mag) { shake.mag = Math.max(shake.mag, mag); }
+  function tickShake() {
+    if (shake.mag > 0.2) {
+      shake.x = (Math.random() - 0.5) * shake.mag * 2;
+      shake.y = (Math.random() - 0.5) * shake.mag * 2;
+      shake.mag *= shake.decay;
+      if (forgeStage) forgeStage.style.transform = 'translate(' + shake.x.toFixed(2) + 'px,' + shake.y.toFixed(2) + 'px)';
+    } else if (shake.mag !== 0) {
+      shake.mag = 0; shake.x = 0; shake.y = 0;
+      if (forgeStage) forgeStage.style.transform = '';
+    }
+    requestAnimationFrame(tickShake);
+  }
+  tickShake();
+
+  // Full-screen flash.
+  function flash(color, intensity, duration) {
+    if (!forgeFlash) return;
+    forgeFlash.style.background = color || '#fff';
+    forgeFlash.style.transition = 'opacity 40ms linear';
+    forgeFlash.style.opacity = String(intensity || 0.8);
+    setTimeout(() => {
+      forgeFlash.style.transition = 'opacity ' + (duration || 220) + 'ms ease-out';
+      forgeFlash.style.opacity = '0';
+    }, 50);
+  }
+
+  // Draw a soft radial glow at (x,y) on the anim canvas.
+  function drawGlow(x, y, radius, color, alpha) {
+    const grad = animCtx.createRadialGradient(x, y, 0, x, y, radius);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    animCtx.save();
+    animCtx.globalCompositeOperation = 'lighter';
+    animCtx.globalAlpha = alpha == null ? 1 : alpha;
+    animCtx.fillStyle = grad;
+    animCtx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    animCtx.restore();
+  }
+
+  // Spawn a lightning-bolt polyline between two points with jitter + branches.
+  function drawLightning(x1, y1, x2, y2, color, alpha, width) {
+    const segs = 12;
+    const amp  = Math.hypot(x2 - x1, y2 - y1) * 0.08;
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      const jitter = (i === 0 || i === segs) ? 0 : (Math.random() - 0.5) * amp;
+      pts.push({ x: x1 + (x2 - x1) * t + jitter, y: y1 + (y2 - y1) * t });
+    }
+    animCtx.save();
+    animCtx.globalCompositeOperation = 'lighter';
+    animCtx.strokeStyle = color;
+    animCtx.globalAlpha = alpha;
+    animCtx.shadowColor = color;
+    animCtx.shadowBlur = 14;
+    animCtx.lineWidth = width;
+    animCtx.beginPath();
+    animCtx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) animCtx.lineTo(pts[i].x, pts[i].y);
+    animCtx.stroke();
+    // Branches
+    for (let i = 2; i < pts.length - 2; i++) {
+      if (Math.random() > 0.7) {
+        const bx = pts[i].x + (Math.random() - 0.5) * amp * 2;
+        const by = pts[i].y + (Math.random() - 0.5) * amp * 2;
+        animCtx.lineWidth = Math.max(1, width * 0.5);
+        animCtx.globalAlpha = alpha * 0.6;
+        animCtx.beginPath();
+        animCtx.moveTo(pts[i].x, pts[i].y);
+        animCtx.lineTo(bx, by);
+        animCtx.stroke();
+      }
+    }
+    animCtx.restore();
+  }
+
   /* ── Draw sidebar rock ── */
   baseRock.render(document.getElementById('sidebar-rock-canvas'));
 
-  /* ── Particle system ── */
+  /* ── Particle system (typed, with trails + additive blending) ──
+     Types:
+       'spark'  — bright streak, gravity pull, long trail, additive
+       'ember'  — soft glow, slow drift, rises then falls
+       'dust'   — small fragment chunks, high gravity, bounce-free
+       'ring'   — expanding hollow ring (impact)
+       'shard'  — rotating chip with no gravity
+  */
   const particleCanvas = document.createElement('canvas');
   particleCanvas.id = 'particle-canvas';
   document.body.appendChild(particleCanvas);
@@ -66,37 +238,149 @@
   window.addEventListener('resize', resizeParticles);
   resizeParticles();
 
+  // Back-compat shim used by old call sites.
   function spawnParticles(cx, cy, color, count) {
+    spawnBurst(cx, cy, color, count, 'spark');
+  }
+
+  function spawnBurst(cx, cy, color, count, type) {
+    type = type || 'spark';
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 1 + Math.random() * 4;
+      let speed, life, size, gravity;
+      switch (type) {
+        case 'ember':
+          speed = 0.4 + Math.random() * 1.6;
+          life  = 50 + Math.random() * 40;
+          size  = 2 + Math.random() * 3;
+          gravity = 0.02;
+          break;
+        case 'dust':
+          speed = 1 + Math.random() * 3;
+          life  = 30 + Math.random() * 20;
+          size  = 1 + Math.random() * 2;
+          gravity = 0.22;
+          break;
+        case 'shard':
+          speed = 2 + Math.random() * 4;
+          life  = 40 + Math.random() * 30;
+          size  = 2 + Math.random() * 3;
+          gravity = 0.15;
+          break;
+        case 'spark':
+        default:
+          speed = 2 + Math.random() * 5;
+          life  = 30 + Math.random() * 25;
+          size  = 1.5 + Math.random() * 2.5;
+          gravity = 0.06;
+      }
       particles.push({
+        type,
         x: cx, y: cy,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 2,
-        life: 40 + Math.random() * 30,
-        maxLife: 70,
-        size: 2 + Math.random() * 4,
+        vy: Math.sin(angle) * speed - (type === 'ember' ? 1.4 : 1.8),
+        life, maxLife: life,
+        size,
+        gravity,
+        rot: Math.random() * Math.PI,
+        vrot: (Math.random() - 0.5) * 0.3,
         color,
+        trail: [],
       });
     }
   }
 
+  function spawnRing(cx, cy, color, radiusPx, thickness) {
+    particles.push({
+      type: 'ring',
+      x: cx, y: cy,
+      r: 2, maxR: radiusPx,
+      thickness: thickness || 2,
+      life: 22, maxLife: 22,
+      color,
+    });
+  }
+
   function tickParticles() {
     pctx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
-    particles = particles.filter(p => p.life > 0);
+    const prevComp = pctx.globalCompositeOperation;
+
+    const keep = [];
     for (const p of particles) {
+      if (p.type === 'ring') {
+        const t = 1 - p.life / p.maxLife;
+        p.r = p.maxR * (1 - Math.pow(1 - t, 3));
+        p.life--;
+        pctx.globalCompositeOperation = 'lighter';
+        pctx.globalAlpha = (1 - t) * 0.9;
+        pctx.strokeStyle = p.color;
+        pctx.lineWidth = p.thickness;
+        pctx.beginPath();
+        pctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        pctx.stroke();
+        if (p.life > 0) keep.push(p);
+        continue;
+      }
+
+      // Track trail
+      if (p.type === 'spark' || p.type === 'shard') {
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > 6) p.trail.shift();
+      }
+
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.08;
+      p.vy += p.gravity;
+      p.rot += p.vrot || 0;
       p.life--;
+
       const alpha = p.life / p.maxLife;
+
+      if (p.type === 'spark' || p.type === 'ember') {
+        pctx.globalCompositeOperation = 'lighter';
+      } else {
+        pctx.globalCompositeOperation = 'source-over';
+      }
+
+      // Trail
+      if (p.trail && p.trail.length > 1) {
+        pctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < p.trail.length; i++) {
+          const t = p.trail[i];
+          const a = (i / p.trail.length) * alpha * 0.55;
+          pctx.globalAlpha = a;
+          pctx.fillStyle = p.color;
+          const s = Math.max(1, p.size * (i / p.trail.length));
+          pctx.fillRect(Math.round(t.x - s / 2), Math.round(t.y - s / 2), Math.round(s), Math.round(s));
+        }
+      }
+
+      // Head
       pctx.globalAlpha = alpha;
       pctx.fillStyle = p.color;
-      pctx.fillRect(Math.round(p.x), Math.round(p.y),
-                     Math.round(p.size), Math.round(p.size));
+      const s = Math.max(1, Math.round(p.size));
+      if (p.type === 'shard') {
+        pctx.save();
+        pctx.translate(p.x, p.y);
+        pctx.rotate(p.rot);
+        pctx.fillRect(-s, -s / 2, s * 2, s);
+        pctx.restore();
+      } else if (p.type === 'ember') {
+        // Soft blob: stacked rects
+        pctx.globalAlpha = alpha * 0.45;
+        pctx.fillRect(Math.round(p.x - s), Math.round(p.y - s), s * 2, s * 2);
+        pctx.globalAlpha = alpha;
+        pctx.fillRect(Math.round(p.x - s / 2), Math.round(p.y - s / 2), s, s);
+      } else {
+        pctx.fillRect(Math.round(p.x - s / 2), Math.round(p.y - s / 2), s, s);
+      }
+
+      if (p.life > 0) keep.push(p);
     }
+    particles = keep;
+
     pctx.globalAlpha = 1;
+    pctx.globalCompositeOperation = prevComp;
     requestAnimationFrame(tickParticles);
   }
   tickParticles();
@@ -364,13 +648,14 @@
     setTimeout(() => {
       forgeOverlay.classList.remove('active');
       callback();
-    }, 400);
+    }, 380);
   }
 
   function showForgeAnimation(sourceColl, resultColl, pid, callback) {
     forgeOverlay.classList.add('active');
     forgeAnimLabel.textContent = PROCESS_NAMES[pid] + '...';
     forgeAnimLabel.style.color = PROCESS_COLORS[pid];
+    sfxProcess(pid);
 
     const finish = () => finishAnimation(resultColl, callback);
 
@@ -382,6 +667,12 @@
       case 'emerald_filler': animateEmeraldFiller(sourceColl, resultColl, finish); break;
       default: finish();
     }
+  }
+
+  // Map a canvas point (x,y in 400x400 space) to screen coords.
+  function canvasToScreen(x, y) {
+    const { rect, ds } = canvasScreenPos();
+    return { sx: rect.left + x * ds, sy: rect.top + y * ds };
   }
 
   /* ── Pixel-diff helper ── */
@@ -403,114 +694,253 @@
     return changes;
   }
 
-  /* ── Gold Plating: wave of gold sweeps top→bottom ── */
+  /* ── Gold Plating: charge → radial molten-gold sweep → shine + pop ── */
   function animateGoldPlating(sourceColl, resultColl, finish) {
-    // Work at the result's dimensions from frame 1 so position stays stable
     const work = resultColl.clone();
+    // Render once so _bounds / _scale are populated, then hide new gold pixels.
+    work.render(forgeAnimCanvas, false);
+    const scale = work._scale || 4;
 
-    // Find new gold border pixels (not present in source) and hide them
+    // Find new gold border pixels and hide them initially.
+    // Pre-compute distance from piece center so the sweep is radial.
     const goldPixels = [];
     for (let i = 0; i < resultColl.pieces.length; i++) {
       if (!sourceColl.pieces[i].selected) continue;
       const src = sourceColl.pieces[i].rock;
       const res = resultColl.pieces[i].rock;
+      const cxP = res.w / 2, cyP = res.h / 2;
       for (let y = 0; y < res.h; y++)
         for (let x = 0; x < res.w; x++) {
           const p = res.grid[y][x];
           if (!p) continue;
-          // Original pixels sit at offset (1,1) in the expanded grid
           const ox = x - 1, oy = y - 1;
           const isOriginal = ox >= 0 && ox < src.w && oy >= 0 && oy < src.h && src.grid[oy][ox];
           if (!isOriginal) {
-            goldPixels.push({ pi: i, x, y, mat: p.mat, shade: p.shade });
-            work.pieces[i].rock.grid[y][x] = null; // hide initially
+            const dist = Math.hypot(x - cxP, y - cyP);
+            goldPixels.push({ pi: i, x, y, mat: p.mat, shade: p.shade, dist });
+            work.pieces[i].rock.grid[y][x] = null;
           }
         }
     }
-    goldPixels.sort((a, b) => a.y - b.y || a.x - b.x);
+    goldPixels.sort((a, b) => a.dist - b.dist);
 
-    const total = goldPixels.length;
-    const frames = 50;
-    const batch = Math.max(1, Math.ceil(total / frames));
-    let idx = 0;
+    const chargeMs = 260;
+    const sweepMs  = 900;
+    const popMs    = 280;
+    const total = chargeMs + sweepMs + popMs;
+    const start = performance.now();
+    const n = goldPixels.length;
+    let revealed = 0;
 
-    function frame() {
-      const end = Math.min(idx + batch, total);
-      for (let i = idx; i < end; i++) {
-        const c = goldPixels[i];
-        work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
-      }
-      work.render(forgeAnimCanvas, false);
+    // Piece centers in canvas coords for glow.
+    const centers = work._bounds.map((b, i) => ({
+      cx: b.x + b.w / 2, cy: b.y + b.h / 2, r: Math.max(b.w, b.h) / 2,
+      sel: sourceColl.pieces[i].selected,
+    }));
 
-      if (end > idx) {
-        const { rect, ds } = canvasScreenPos();
-        const last = goldPixels[end - 1];
-        const b = work._bounds[last.pi];
-        if (b) {
-          const s = work._scale || 4;
-          const sx = rect.left + (b.x + last.x * s + s / 2) * ds;
-          const sy = rect.top  + (b.y + last.y * s + s / 2) * ds;
-          spawnParticles(sx, sy, '#ffd700', 3);
+    function frame(now) {
+      const dt = now - start;
+      animCtx.clearRect(0, 0, 400, 400);
+
+      if (dt < chargeMs) {
+        // Phase 1: charge — render source, pulse a gold glow at each piece center.
+        sourceColl.render(forgeAnimCanvas, false);
+        const p = dt / chargeMs;
+        const pulse = 0.5 + 0.5 * Math.sin(p * Math.PI * 4);
+        for (const c of centers) {
+          if (!c.sel) continue;
+          drawGlow(c.cx, c.cy, c.r * (1.2 + 0.4 * pulse), 'rgba(255,215,0,' + (0.5 * pulse).toFixed(3) + ')', 1);
+        }
+        if (p > 0.5 && Math.random() < 0.5) {
+          for (const c of centers) if (c.sel) {
+            const { sx, sy } = canvasToScreen(c.cx + (Math.random() - 0.5) * c.r, c.cy + (Math.random() - 0.5) * c.r);
+            spawnBurst(sx, sy, '#ffd700', 1, 'ember');
+          }
+        }
+      } else if (dt < chargeMs + sweepMs) {
+        // Phase 2: radial sweep — reveal gold pixels in dist order.
+        const p = (dt - chargeMs) / sweepMs;
+        const targetRevealed = Math.floor(EASE.outCubic(p) * n);
+        while (revealed < targetRevealed) {
+          const c = goldPixels[revealed];
+          work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
+          revealed++;
+        }
+        work.render(forgeAnimCanvas, false);
+
+        // Bright "wave front" glow between last revealed and next hidden.
+        if (revealed > 0 && revealed < n) {
+          const frontDist = goldPixels[revealed].dist;
+          for (const c of centers) {
+            if (!c.sel) continue;
+            drawGlow(c.cx, c.cy, frontDist * scale * 1.3,
+              'rgba(255,230,120,0.28)', 1);
+          }
+        }
+
+        // Sparks at the frontier.
+        if (revealed > 0) {
+          const stepsThisFrame = Math.max(1, Math.min(6, Math.ceil(n / 50)));
+          for (let k = 0; k < stepsThisFrame && revealed - k > 0; k++) {
+            const px = goldPixels[revealed - 1 - k];
+            const b = work._bounds[px.pi];
+            if (!b) continue;
+            const { sx, sy } = canvasToScreen(b.x + px.x * scale + scale / 2, b.y + px.y * scale + scale / 2);
+            if (Math.random() < 0.35) spawnBurst(sx, sy, '#ffd700', 1, 'spark');
+          }
+        }
+      } else {
+        // Phase 3: finished gold — shine sweep + pop.
+        while (revealed < n) {
+          const c = goldPixels[revealed];
+          work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
+          revealed++;
+        }
+        const p = (dt - chargeMs - sweepMs) / popMs;
+
+        work.render(forgeAnimCanvas, false);
+
+        // Diagonal shine sweep across each piece.
+        animCtx.save();
+        animCtx.globalCompositeOperation = 'lighter';
+        for (const b of work._bounds) {
+          const bandX = b.x - b.w + p * (b.w * 2.2);
+          const grad = animCtx.createLinearGradient(bandX, 0, bandX + b.w * 0.4, b.h);
+          grad.addColorStop(0,   'rgba(255,255,255,0)');
+          grad.addColorStop(0.5, 'rgba(255,255,255,0.55)');
+          grad.addColorStop(1,   'rgba(255,255,255,0)');
+          animCtx.fillStyle = grad;
+          animCtx.fillRect(b.x, b.y, b.w, b.h);
+        }
+        animCtx.restore();
+
+        // Kick flash + shake once.
+        if (p < 0.08) {
+          flash('#ffe680', 0.6, 260);
+          kickShake(6);
+          for (const c of centers) {
+            if (!c.sel) continue;
+            const { sx, sy } = canvasToScreen(c.cx, c.cy);
+            spawnRing(sx, sy, '#ffd700', c.r * 2.2, 3);
+            spawnBurst(sx, sy, '#fff0a0', 16, 'spark');
+          }
         }
       }
 
-      idx = end;
-      if (idx < total) requestAnimationFrame(frame);
+      if (dt < total) requestAnimationFrame(frame);
       else finish();
     }
-    frame();
+    requestAnimationFrame(frame);
   }
 
-  /* ── Ruby Mosaic: rubies pop in randomly ── */
+  /* ── Ruby Mosaic: aura → staggered pop-in with rings → red flash ── */
   function animateRubyMosaic(sourceColl, resultColl, finish) {
     const changes = getPixelChanges(sourceColl, resultColl);
-    // shuffle for random pop-in
     for (let i = changes.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [changes[i], changes[j]] = [changes[j], changes[i]];
     }
 
     const work = sourceColl.clone();
-    const total = changes.length;
-    const frames = 40;
-    const batch = Math.max(1, Math.ceil(total / frames));
-    let idx = 0;
+    work.render(forgeAnimCanvas, false);
+    const scale = work._scale || 4;
 
-    function frame() {
-      const end = Math.min(idx + batch, total);
-      for (let i = idx; i < end; i++) {
-        const c = changes[i];
-        work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
-      }
-      work.render(forgeAnimCanvas, false);
+    const auraMs = 300;
+    const popMs  = 950;
+    const flashMs = 260;
+    const total = auraMs + popMs + flashMs;
+    const start = performance.now();
+    const n = changes.length;
+    let revealed = 0;
 
-      if (end > idx) {
-        const { rect, ds } = canvasScreenPos();
-        const c = changes[end - 1];
-        const b = work._bounds[c.pi];
-        if (b) {
-          const s = work._scale || 4;
-          const sx = rect.left + (b.x + c.x * s + s / 2) * ds;
-          const sy = rect.top  + (b.y + c.y * s + s / 2) * ds;
-          spawnParticles(sx, sy, '#dc143c', 4);
+    const centers = work._bounds.map((b, i) => ({
+      cx: b.x + b.w / 2, cy: b.y + b.h / 2, r: Math.max(b.w, b.h) / 2,
+      sel: sourceColl.pieces[i].selected,
+    }));
+
+    function frame(now) {
+      const dt = now - start;
+      animCtx.clearRect(0, 0, 400, 400);
+
+      if (dt < auraMs) {
+        work.render(forgeAnimCanvas, false);
+        const p = dt / auraMs;
+        const pulse = 0.5 + 0.5 * Math.sin(p * Math.PI * 3);
+        for (const c of centers) {
+          if (!c.sel) continue;
+          drawGlow(c.cx, c.cy, c.r * (1.1 + 0.3 * pulse),
+            'rgba(220,20,60,' + (0.42 * pulse).toFixed(3) + ')', 1);
+        }
+      } else if (dt < auraMs + popMs) {
+        const p = (dt - auraMs) / popMs;
+        const target = Math.floor(EASE.outQuint(p) * n);
+        let justRevealed = 0;
+        while (revealed < target) {
+          const c = changes[revealed];
+          work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
+          revealed++;
+          justRevealed++;
+        }
+        work.render(forgeAnimCanvas, false);
+
+        // For each newly revealed ruby this frame, emit a tiny ring + sparks.
+        const emitBudget = Math.min(justRevealed, 5);
+        for (let k = 0; k < emitBudget; k++) {
+          const idx2 = revealed - 1 - Math.floor(Math.random() * justRevealed);
+          const c = changes[idx2];
+          const b = work._bounds[c.pi];
+          if (!b) continue;
+          const { sx, sy } = canvasToScreen(b.x + c.x * scale + scale / 2, b.y + c.y * scale + scale / 2);
+          spawnRing(sx, sy, '#ff3060', scale * 3, 2);
+          if (Math.random() < 0.6) spawnBurst(sx, sy, '#ff4060', 2, 'spark');
+          if (Math.random() < 0.3) spawnBurst(sx, sy, '#dc143c', 1, 'ember');
+        }
+      } else {
+        while (revealed < n) {
+          const c = changes[revealed];
+          work.pieces[c.pi].rock.grid[c.y][c.x] = { mat: c.mat, shade: c.shade };
+          revealed++;
+        }
+        const p = (dt - auraMs - popMs) / flashMs;
+        work.render(forgeAnimCanvas, false);
+        if (p < 0.08) {
+          flash('#ff4060', 0.5, 240);
+          kickShake(4);
+          for (const c of centers) {
+            if (!c.sel) continue;
+            const { sx, sy } = canvasToScreen(c.cx, c.cy);
+            spawnRing(sx, sy, '#dc143c', c.r * 2, 3);
+          }
         }
       }
 
-      idx = end;
-      if (idx < total) requestAnimationFrame(frame);
+      if (dt < total) requestAnimationFrame(frame);
       else finish();
     }
-    frame();
+    requestAnimationFrame(frame);
   }
 
-  /* ── Flip: per-piece squeeze → expand ── */
+  /* ── Flip: anticipation squash → 3D-ish rotate w/ motion trails → overshoot settle ── */
   function animateFlip(sourceColl, resultColl, finish) {
     sourceColl.render(forgeAnimCanvas, false);
     const bounds = sourceColl._bounds.map(b => ({ ...b }));
     const scale = sourceColl._scale;
 
-    const duration = 800;
+    // Pre-render source/result per-piece to their own small offscreens so we
+    // can apply transforms cleanly.
+    function pieceCanvas(coll, i) {
+      const b = bounds[i];
+      const c = document.createElement('canvas');
+      c.width = b.w; c.height = b.h;
+      coll.pieces[i].rock.renderAt(c.getContext('2d'), 0, 0, scale);
+      return c;
+    }
+    const srcCanvases = sourceColl.pieces.map((_, i) => pieceCanvas(sourceColl, i));
+    const resCanvases = resultColl.pieces.map((_, i) => pieceCanvas(resultColl, i));
+
+    const duration = 900;
     const start = performance.now();
+    let flashedMid = false;
 
     function frame(now) {
       const t = Math.min((now - start) / duration, 1);
@@ -519,35 +949,76 @@
       for (let i = 0; i < sourceColl.pieces.length; i++) {
         const b = bounds[i];
         if (!sourceColl.pieces[i].selected) {
-          sourceColl.pieces[i].rock.renderAt(animCtx, b.x, b.y, scale);
-        } else {
-          const cx = b.x + b.w / 2;
-          animCtx.save();
-          animCtx.translate(cx, 0);
-          if (t < 0.5) {
-            animCtx.scale(1 - t * 2, 1);
-            animCtx.translate(-cx, 0);
-            sourceColl.pieces[i].rock.renderAt(animCtx, b.x, b.y, scale);
-          } else {
-            animCtx.scale((t - 0.5) * 2, 1);
-            animCtx.translate(-cx, 0);
-            resultColl.pieces[i].rock.renderAt(animCtx, b.x, b.y, scale);
-          }
-          animCtx.restore();
+          animCtx.drawImage(srcCanvases[i], b.x, b.y);
+          continue;
         }
+
+        const cx = b.x + b.w / 2;
+        const cy = b.y + b.h / 2;
+
+        // 0..0.2  anticipation  (squash slightly, tiny counter-rotate)
+        // 0.2..0.8 rotation     (scaleX goes 1 → 0 → 1 in flipped form)
+        // 0.8..1  overshoot settle
+        let sx, skew, srcAlpha, resAlpha;
+        if (t < 0.2) {
+          const p = t / 0.2;
+          const squash = 1 - 0.08 * EASE.outCubic(p);
+          sx = squash; skew = -0.05 * p;
+          srcAlpha = 1; resAlpha = 0;
+        } else if (t < 0.8) {
+          const p = (t - 0.2) / 0.6;
+          // True flip: scaleX does cos(p*pi): 1 at 0, -1 at 1.
+          const cos = Math.cos(p * Math.PI);
+          sx = cos;
+          skew = 0.12 * Math.sin(p * Math.PI);
+          // Midpoint swap at cos=0.
+          if (cos >= 0) { srcAlpha = 1; resAlpha = 0; }
+          else          { srcAlpha = 0; resAlpha = 1; }
+        } else {
+          const p = (t - 0.8) / 0.2;
+          sx = -1 + (EASE.outElastic(p) * 0); // stays at flipped
+          sx = -1 * (1 - 0.05 * Math.sin(p * Math.PI * 2));
+          skew = 0;
+          srcAlpha = 0; resAlpha = 1;
+        }
+
+        animCtx.save();
+        animCtx.translate(cx, cy);
+        animCtx.transform(sx, skew * 0.6, skew, 1, 0, 0);
+        animCtx.translate(-cx, -cy);
+
+        // Motion blur: draw faded ghost of the other side under.
+        if (t >= 0.2 && t < 0.8) {
+          const ghost = srcAlpha > 0 ? srcCanvases[i] : resCanvases[i];
+          animCtx.globalAlpha = 0.25;
+          animCtx.drawImage(ghost, b.x - 3, b.y);
+          animCtx.drawImage(ghost, b.x + 3, b.y);
+          animCtx.globalAlpha = 1;
+        }
+
+        if (srcAlpha > 0) {
+          animCtx.globalAlpha = srcAlpha;
+          animCtx.drawImage(srcCanvases[i], b.x, b.y);
+        }
+        if (resAlpha > 0) {
+          animCtx.globalAlpha = resAlpha;
+          animCtx.drawImage(resCanvases[i], b.x, b.y);
+        }
+        animCtx.globalAlpha = 1;
+        animCtx.restore();
       }
 
-      if (t > 0.45 && t < 0.55) {
-        const { rect, ds } = canvasScreenPos();
+      // Mid-point flash & sparks at the edge-on moment.
+      if (!flashedMid && t >= 0.5) {
+        flashedMid = true;
+        flash('#ffffff', 0.35, 180);
+        kickShake(3);
         for (let i = 0; i < sourceColl.pieces.length; i++) {
-          if (sourceColl.pieces[i].selected) {
-            const b = bounds[i];
-            spawnParticles(
-              rect.left + (b.x + b.w / 2) * ds,
-              rect.top + (b.y + b.h / 2) * ds,
-              '#e0e0e0', 2
-            );
-          }
+          if (!sourceColl.pieces[i].selected) continue;
+          const b = bounds[i];
+          const { sx, sy } = canvasToScreen(b.x + b.w / 2, b.y + b.h / 2);
+          spawnRing(sx, sy, '#e0e0e0', Math.max(b.w, b.h) * 0.9, 2);
+          spawnBurst(sx, sy, '#ffffff', 10, 'spark');
         }
       }
 
@@ -557,7 +1028,7 @@
     requestAnimationFrame(frame);
   }
 
-  /* ── Split Half: per-piece crack → flash → slide apart ── */
+  /* ── Split Half: charge → lightning crack + flash + big shake → violent slide-apart ── */
   function animateSplit(sourceColl, resultColl, finish) {
     const offBefore = document.createElement('canvas');
     offBefore.width = 400; offBefore.height = 400;
@@ -568,86 +1039,122 @@
     offAfter.width = 400; offAfter.height = 400;
     resultColl.render(offAfter, false);
 
-    // Collect bounds of selected pieces for per-piece cracks
     const selBounds = [];
     for (let i = 0; i < sourceColl.pieces.length; i++)
       if (sourceColl.pieces[i].selected) selBounds.push(bounds[i]);
 
-    const duration = 1500;
+    const duration = 1600;
     const start = performance.now();
+    let impactFired = false;
+
+    // Tiny per-piece shake during charge.
+    const jitter = (mag) => (Math.random() - 0.5) * mag * 2;
 
     function frame(now) {
       const t = Math.min((now - start) / duration, 1);
       animCtx.clearRect(0, 0, 400, 400);
 
       if (t < 0.35) {
-        // Phase 1: growing crack at each selected piece's center
-        animCtx.drawImage(offBefore, 0, 0);
+        // Phase 1: charge — piece trembles, blue aura converges on the split line.
         const p = t / 0.35;
+        const shakeAmp = 1.2 * p;
         animCtx.save();
-        animCtx.strokeStyle = 'rgba(136,204,255,' + p + ')';
-        animCtx.lineWidth = 2 + p * 2;
-        animCtx.shadowColor = '#88ccff';
-        animCtx.shadowBlur = 12 * p;
+        animCtx.translate(jitter(shakeAmp), jitter(shakeAmp));
+        animCtx.drawImage(offBefore, 0, 0);
+        animCtx.restore();
+
+        // Aura glow at split line; line itself brightens.
+        animCtx.save();
+        animCtx.globalCompositeOperation = 'lighter';
         for (const b of selBounds) {
-          const cx = b.x + b.w / 2;
-          const cy = b.y + b.h / 2;
+          const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+          drawGlow(cx, cy, b.h * (0.6 + 0.4 * p),
+            'rgba(136,204,255,' + (0.5 * p).toFixed(3) + ')', 1);
+          animCtx.strokeStyle = 'rgba(180,220,255,' + (0.35 + 0.5 * p).toFixed(3) + ')';
+          animCtx.lineWidth = 1.5 + 1.5 * p;
+          animCtx.shadowColor = '#88ccff';
+          animCtx.shadowBlur = 18 * p;
           const halfH = b.h / 2 * p;
           animCtx.beginPath();
-          animCtx.moveTo(cx, cy - halfH);
-          animCtx.lineTo(cx, cy + halfH);
+          animCtx.moveTo(cx + (Math.random() - 0.5) * 1.5, cy - halfH);
+          animCtx.lineTo(cx + (Math.random() - 0.5) * 1.5, cy + halfH);
           animCtx.stroke();
         }
         animCtx.restore();
+
+        // Stray blue embers rising off the line.
+        if (p > 0.4 && Math.random() < 0.55 && selBounds.length) {
+          const rb = selBounds[Math.floor(Math.random() * selBounds.length)];
+          const { sx, sy } = canvasToScreen(rb.x + rb.w / 2, rb.y + Math.random() * rb.h);
+          spawnBurst(sx, sy, '#88ccff', 1, 'ember');
+        }
       } else if (t < 0.5) {
-        // Phase 2: bright flash at each crack
+        // Phase 2: the crack. Lightning strike + full-screen flash + big shake.
         animCtx.drawImage(offBefore, 0, 0);
-        const flash = Math.sin((t - 0.35) / 0.15 * Math.PI * 4) * 0.5 + 0.5;
-        animCtx.save();
-        animCtx.strokeStyle = 'rgba(255,255,255,' + flash + ')';
-        animCtx.lineWidth = 4;
-        animCtx.shadowColor = '#fff';
-        animCtx.shadowBlur = 25;
         for (const b of selBounds) {
           const cx = b.x + b.w / 2;
-          animCtx.beginPath();
-          animCtx.moveTo(cx, b.y - 4);
-          animCtx.lineTo(cx, b.y + b.h + 4);
-          animCtx.stroke();
+          // Main bolt
+          drawLightning(cx, b.y - 8, cx, b.y + b.h + 8, '#eaffff', 0.95, 3);
+          // Secondary bolt
+          drawLightning(cx, b.y - 8, cx, b.y + b.h + 8, '#88ccff', 0.7, 1.5);
         }
-        animCtx.restore();
 
-        if (Math.random() < 0.3 && selBounds.length) {
-          const { rect, ds } = canvasScreenPos();
-          const rb = selBounds[Math.floor(Math.random() * selBounds.length)];
-          spawnParticles(
-            rect.left + (rb.x + rb.w / 2) * ds,
-            rect.top + (rb.y + Math.random() * rb.h) * ds,
-            '#88ccff', 3
-          );
+        if (!impactFired) {
+          impactFired = true;
+          flash('#ffffff', 0.85, 300);
+          kickShake(14);
+          for (const b of selBounds) {
+            const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+            const { sx, sy } = canvasToScreen(cx, cy);
+            spawnRing(sx, sy, '#ffffff', Math.max(b.w, b.h) * 1.4, 3);
+            spawnRing(sx, sy, '#88ccff', Math.max(b.w, b.h) * 1.0, 2);
+            spawnBurst(sx, sy, '#cfefff', 24, 'spark');
+            spawnBurst(sx, sy, '#ffffff', 12, 'shard');
+            spawnBurst(sx, sy, '#88ccff', 8, 'ember');
+          }
         }
       } else {
-        // Phase 3: each selected piece's halves slide apart, crossfade to result
+        // Phase 3: violent slide-apart with dust + residual sparks, then crossfade.
         const st = (t - 0.5) / 0.5;
-        const eased = 1 - Math.pow(1 - st, 3);
-        const offset = eased * 12;
+        const eased = EASE.outQuint(st);
+        const offset = eased * 16;
 
-        animCtx.globalAlpha = 1 - eased;
-        // Draw unselected pieces static
+        // Unselected pieces static.
         for (let i = 0; i < sourceColl.pieces.length; i++) {
           if (sourceColl.pieces[i].selected) continue;
           const b = bounds[i];
           animCtx.drawImage(offBefore, b.x, b.y, b.w, b.h, b.x, b.y, b.w, b.h);
         }
-        // Draw selected pieces with halves sliding apart
+        // Selected halves slide apart with slight rotation.
+        animCtx.globalAlpha = 1 - eased;
         for (const b of selBounds) {
           const halfW = Math.floor(b.w / 2);
-          animCtx.drawImage(offBefore, b.x, b.y, halfW, b.h,
-                            b.x - offset, b.y, halfW, b.h);
+          const rot = 0.035 * eased;
+          const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+
+          animCtx.save();
+          animCtx.translate(cx - halfW / 2 - offset, cy);
+          animCtx.rotate(-rot);
+          animCtx.drawImage(offBefore, b.x, b.y, halfW, b.h, -halfW / 2, -b.h / 2, halfW, b.h);
+          animCtx.restore();
+
+          animCtx.save();
+          animCtx.translate(cx + (b.w - halfW) / 2 + offset, cy);
+          animCtx.rotate(rot);
           animCtx.drawImage(offBefore, b.x + halfW, b.y, b.w - halfW, b.h,
-                            b.x + halfW + offset, b.y, b.w - halfW, b.h);
+                            -(b.w - halfW) / 2, -b.h / 2, b.w - halfW, b.h);
+          animCtx.restore();
+        }
+        animCtx.globalAlpha = 1;
+
+        // Residual dust during slide.
+        if (st < 0.6 && Math.random() < 0.6 && selBounds.length) {
+          const rb = selBounds[Math.floor(Math.random() * selBounds.length)];
+          const { sx, sy } = canvasToScreen(rb.x + rb.w / 2, rb.y + Math.random() * rb.h);
+          spawnBurst(sx, sy, '#aac8e0', 2, 'dust');
         }
 
+        // Crossfade to result.
         animCtx.globalAlpha = eased;
         animCtx.drawImage(offAfter, 0, 0);
         animCtx.globalAlpha = 1;
@@ -736,8 +1243,25 @@
       }
     }
 
+    // Pre-compute gap centers (screen coords) and energy-stream emitters.
+    const gaps = [];
+    for (let i = 0; i < sourceColl.pieces.length - 1; i++) {
+      const a = sourceColl.pieces[i], b = sourceColl.pieces[i + 1];
+      if (!(a.selected && b.selected)) continue;
+      const bA = bounds[i], bB = bounds[i + 1];
+      const gapCx = (bA.x + bA.w + bB.x) / 2;
+      const gapCy = (bA.y + bA.h / 2 + bB.y + bB.h / 2) / 2;
+      gaps.push({
+        cx: gapCx, cy: gapCy,
+        leftX: bA.x + bA.w * 0.3, rightX: bB.x + bB.w * 0.7,
+        top: Math.min(bA.y, bB.y),
+        bot: Math.max(bA.y + bA.h, bB.y + bB.h),
+      });
+    }
+
     const duration = 1500;
     const start = performance.now();
+    let popFired = false;
 
     function drawCells(alpha, glow) {
       animCtx.save();
@@ -755,52 +1279,71 @@
       const t = Math.min((now - start) / duration, 1);
       animCtx.clearRect(0, 0, 400, 400);
 
-      if (t < 0.55) {
-        // Phase 1: source stays put. Gap pulses emerald ~3 times with halo.
+      if (t < 0.45) {
+        // Phase 1: energy streams flow from both sides into the gap + ramp-up pulse.
         animCtx.drawImage(offBefore, 0, 0);
-        const phase = t / 0.55;
-        const blink = (Math.sin(phase * Math.PI * 6) + 1) / 2;
-        drawCells(0.55 + 0.45 * blink, 18 * blink);
+        const p = t / 0.45;
+        const pulse = 0.4 + 0.6 * ((Math.sin(p * Math.PI * 5) + 1) / 2);
 
-        if (blink > 0.75 && Math.random() < 0.5 && cells.length) {
-          const { rect, ds } = canvasScreenPos();
-          const c = cells[Math.floor(Math.random() * cells.length)];
-          spawnParticles(
-            rect.left + (c.x + c.w / 2) * ds,
-            rect.top  + (c.y + c.h / 2) * ds,
-            '#2fdc8a', 2
-          );
+        // Streams: animated dashes moving toward gap center.
+        animCtx.save();
+        animCtx.globalCompositeOperation = 'lighter';
+        animCtx.strokeStyle = 'rgba(47,220,138,' + (0.6 * p).toFixed(3) + ')';
+        animCtx.lineWidth = 2;
+        animCtx.shadowColor = '#2fdc8a';
+        animCtx.shadowBlur = 10;
+        animCtx.setLineDash([6, 6]);
+        animCtx.lineDashOffset = -(now * 0.08);
+        for (const g of gaps) {
+          animCtx.beginPath();
+          animCtx.moveTo(g.leftX, g.cy); animCtx.lineTo(g.cx, g.cy);
+          animCtx.moveTo(g.rightX, g.cy); animCtx.lineTo(g.cx, g.cy);
+          animCtx.stroke();
         }
-      } else if (t < 0.8) {
-        // Phase 2: emerald solidifies in the gap with a sharp white pop.
+        animCtx.setLineDash([]);
+        animCtx.restore();
+
+        drawCells(0.25 + 0.35 * pulse, 14 * pulse);
+
+        // Emit flowing embers toward the gap.
+        if (Math.random() < 0.9 && gaps.length) {
+          const g = gaps[Math.floor(Math.random() * gaps.length)];
+          const side = Math.random() < 0.5 ? g.leftX : g.rightX;
+          const { sx, sy } = canvasToScreen(side, g.cy + (Math.random() - 0.5) * (g.bot - g.top) * 0.6);
+          spawnBurst(sx, sy, '#2fdc8a', 1, 'ember');
+        }
+      } else if (t < 0.75) {
+        // Phase 2: crystal pop — band materializes with bright white flash + shake.
         animCtx.drawImage(offBefore, 0, 0);
-        drawCells(1, 22);
-        const phase = (t - 0.55) / 0.25;
-        const flash = Math.max(0, 1 - phase * 2.5);
-        if (flash > 0) {
+        drawCells(1, 26);
+
+        const phase = (t - 0.45) / 0.3;
+        const flashLum = Math.max(0, 1 - phase * 2.2);
+        if (flashLum > 0) {
           animCtx.save();
-          animCtx.globalAlpha = flash;
+          animCtx.globalCompositeOperation = 'lighter';
+          animCtx.globalAlpha = flashLum;
           animCtx.fillStyle   = '#eaffe8';
           for (const c of cells) {
             animCtx.fillRect(c.x - 2, c.y - 1, c.w + 4, c.h + 2);
           }
           animCtx.restore();
+        }
 
-          if (phase < 0.15 && cells.length) {
-            const { rect, ds } = canvasScreenPos();
-            for (let k = 0; k < 3; k++) {
-              const c = cells[Math.floor(Math.random() * cells.length)];
-              spawnParticles(
-                rect.left + (c.x + c.w / 2) * ds,
-                rect.top  + (c.y + c.h / 2) * ds,
-                '#b9ffe0', 3
-              );
-            }
+        if (!popFired) {
+          popFired = true;
+          flash('#b9ffe0', 0.45, 260);
+          kickShake(6);
+          for (const g of gaps) {
+            const { sx, sy } = canvasToScreen(g.cx, g.cy);
+            spawnRing(sx, sy, '#2fdc8a', Math.max(80, (g.bot - g.top)), 3);
+            spawnBurst(sx, sy, '#b9ffe0', 18, 'spark');
+            spawnBurst(sx, sy, '#2fdc8a', 10, 'ember');
           }
         }
       } else {
-        // Phase 3: crossfade to merged result while keeping the emerald lit.
-        const p = (t - 0.8) / 0.2;
+        // Phase 3: crossfade to merged result.
+        const p = (t - 0.75) / 0.25;
         animCtx.globalAlpha = 1 - p;
         animCtx.drawImage(offBefore, 0, 0);
         drawCells(1 - p, 18 * (1 - p));
