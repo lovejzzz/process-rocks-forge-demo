@@ -818,14 +818,18 @@
 
         work.render(forgeAnimCanvas, false);
 
-        // Diagonal shine sweep across each piece.
+        // Diagonal shine sweep — painted with `source-atop` so it only
+        // touches pixels that are already on the canvas (i.e. the rock
+        // silhouette). With `lighter` this would additively paint the
+        // whole bounding-box rectangle over the dark background and read
+        // as a square flash.
         animCtx.save();
-        animCtx.globalCompositeOperation = 'lighter';
+        animCtx.globalCompositeOperation = 'source-atop';
         for (const b of work._bounds) {
           const bandX = b.x - b.w + p * (b.w * 2.2);
-          const grad = animCtx.createLinearGradient(bandX, 0, bandX + b.w * 0.4, b.h);
+          const grad = animCtx.createLinearGradient(bandX, 0, bandX + b.w * 0.45, b.h);
           grad.addColorStop(0,   'rgba(255,255,255,0)');
-          grad.addColorStop(0.5, 'rgba(255,255,255,0.55)');
+          grad.addColorStop(0.5, 'rgba(255,255,255,0.45)');
           grad.addColorStop(1,   'rgba(255,255,255,0)');
           animCtx.fillStyle = grad;
           animCtx.fillRect(b.x, b.y, b.w, b.h);
