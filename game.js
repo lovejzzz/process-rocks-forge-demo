@@ -152,16 +152,34 @@
   }
   tickShake();
 
-  // Full-screen flash.
+  // Radial bloom flash centered on the forge stage. Edges stay transparent
+  // so it reads as a bright halo on the canvas, not a full-screen tint.
+  function hexToRgb(h) {
+    h = (h || '#ffffff').replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  }
   function flash(color, intensity, duration) {
     if (!forgeFlash) return;
-    forgeFlash.style.background = color || '#fff';
+    const [r, g, b] = hexToRgb(color || '#ffffff');
+    // Anchor the bloom on the forge canvas.
+    let cx = '50%', cy = '50%';
+    if (forgeAnimCanvas) {
+      const rect = forgeAnimCanvas.getBoundingClientRect();
+      cx = (rect.left + rect.width / 2) + 'px';
+      cy = (rect.top  + rect.height / 2) + 'px';
+    }
+    forgeFlash.style.background =
+      'radial-gradient(circle at ' + cx + ' ' + cy + ',' +
+      ' rgba(' + r + ',' + g + ',' + b + ',0.95) 0%,' +
+      ' rgba(' + r + ',' + g + ',' + b + ',0.4) 14%,' +
+      ' rgba(' + r + ',' + g + ',' + b + ',0) 36%)';
     forgeFlash.style.transition = 'opacity 40ms linear';
-    forgeFlash.style.opacity = String(intensity || 0.8);
+    forgeFlash.style.opacity = String(Math.min(0.85, intensity || 0.5));
     setTimeout(() => {
       forgeFlash.style.transition = 'opacity ' + (duration || 220) + 'ms ease-out';
       forgeFlash.style.opacity = '0';
-    }, 50);
+    }, 40);
   }
 
   // Draw a soft radial glow at (x,y) on the anim canvas.
@@ -816,8 +834,8 @@
 
         // Kick flash + shake once.
         if (p < 0.08) {
-          flash('#ffe680', 0.6, 260);
-          kickShake(6);
+          flash('#ffe680', 0.35, 240);
+          kickShake(5);
           for (const c of centers) {
             if (!c.sel) continue;
             const { sx, sy } = canvasToScreen(c.cx, c.cy);

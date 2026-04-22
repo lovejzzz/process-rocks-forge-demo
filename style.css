@@ -287,14 +287,20 @@ h1 {
   text-shadow: 0 0 8px currentColor, 0 0 16px currentColor;
 }
 
+/* Flash is a soft radial bloom centered on the forge stage, not a full-screen
+   tint. Edges are transparent so it never paints the whole viewport. */
 #forge-flash {
   position: fixed;
   inset: 0;
-  background: #fff;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(255,255,255,0.95) 0%,
+    rgba(255,255,255,0.45) 12%,
+    rgba(255,255,255,0) 38%
+  );
   opacity: 0;
   pointer-events: none;
   z-index: 101;
-  mix-blend-mode: screen;
   transition: opacity 80ms linear;
 }
 
