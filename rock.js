@@ -216,20 +216,47 @@ class Rock {
   }
 
   /* Merge a contiguous left-to-right run of rocks into one. Where the pieces
-     meet, Split Half's INTERIOR seam cells become emerald — the original
-     silhouette is otherwise preserved. */
+     meet, Split Half's INTERIOR seam cells become emerald. If a pair of
+     facing edges already contains emerald (the run has been filled before),
+     additional emerald columns are inserted between the pieces so the band
+     grows thicker with each subsequent Emerald Filler pass. */
   static emeraldMerge(rocks) {
+    const EXTRA_PER_REFILL = 2;
+
+    // 1. Figure out how many emerald columns to insert at each boundary.
+    const extras = [];
+    for (let i = 0; i < rocks.length - 1; i++) {
+      const A = rocks[i], B = rocks[i + 1];
+      let aHasEmerald = false, bHasEmerald = false;
+      for (let y = 0; y < A.h && !aHasEmerald; y++) {
+        const c = A.grid[y][A.w - 1];
+        if (c && c.mat === MATERIAL.EMERALD) aHasEmerald = true;
+      }
+      for (let y = 0; y < B.h && !bHasEmerald; y++) {
+        const c = B.grid[y][0];
+        if (c && c.mat === MATERIAL.EMERALD) bHasEmerald = true;
+      }
+      extras.push((aHasEmerald || bHasEmerald) ? EXTRA_PER_REFILL : 0);
+    }
+
+    // 2. Compute merged canvas size.
     let totalW = 0;
     let maxH = 0;
     for (const rk of rocks) {
       totalW += rk.w;
       if (rk.h > maxH) maxH = rk.h;
     }
+    for (const e of extras) totalW += e;
 
     const merged = new Rock(totalW, maxH);
     const rng = mulberry32(rocks.length * 31 + totalW);
+
+    // 3. Stamp each rock side-by-side (INTERIOR → emerald), then, at each
+    //    boundary needing extras, insert emerald columns spanning the union
+    //    of rows where the two facing edges have material.
     let xOffset = 0;
-    for (const rk of rocks) {
+    for (let i = 0; i < rocks.length; i++) {
+      const rk = rocks[i];
       const yOffset = Math.floor((maxH - rk.h) / 2);
       for (let y = 0; y < rk.h; y++)
         for (let x = 0; x < rk.w; x++) {
@@ -241,6 +268,21 @@ class Rock {
               : { ...p };
         }
       xOffset += rk.w;
+
+      if (i < rocks.length - 1 && extras[i] > 0) {
+        const A = rocks[i], B = rocks[i + 1];
+        const yOffA = Math.floor((maxH - A.h) / 2);
+        const yOffB = Math.floor((maxH - B.h) / 2);
+        const rows = new Set();
+        for (let y = 0; y < A.h; y++) if (A.grid[y][A.w - 1]) rows.add(yOffA + y);
+        for (let y = 0; y < B.h; y++) if (B.grid[y][0])       rows.add(yOffB + y);
+        for (let k = 0; k < extras[i]; k++) {
+          for (const y of rows) {
+            merged.grid[y][xOffset + k] = { mat: MATERIAL.EMERALD, shade: Math.floor(rng() * 3) };
+          }
+        }
+        xOffset += extras[i];
+      }
     }
 
     merged.history = [...rocks[0].history, 'Emerald Filler'];
