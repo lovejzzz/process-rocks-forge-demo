@@ -672,17 +672,57 @@
     offAfter.width = 400; offAfter.height = 400;
     resultColl.render(offAfter, false);
 
-    // For each adjacent selected pair, build a list of one-row-tall emerald
-    // cells that span the gap. We only emit a row where either piece has a
-    // pixel at its facing edge, so the emerald traces the rock's silhouette
-    // instead of filling the empty space above/below it.
+    // For each adjacent selected pair, compute the final emerald band width
+    // (existing EMERALD/INTERIOR edge layer on each side + any new columns
+    // inserted by the merge), then emit a per-row cell covering that width
+    // centered on the gap, so the animation matches the final filler area.
     const cells = [];
+
+    function edgeLayerDepth(rock, fromRight) {
+      let depth = 0;
+      for (let x = 0; x < rock.w; x++) {
+        const col = fromRight ? rock.w - 1 - x : x;
+        let hasAny = false, allLayer = true;
+        for (let y = 0; y < rock.h; y++) {
+          const c = rock.grid[y][col];
+          if (!c) continue;
+          hasAny = true;
+          if (c.mat !== MATERIAL.EMERALD && c.mat !== MATERIAL.INTERIOR) {
+            allLayer = false;
+            break;
+          }
+        }
+        if (!hasAny || !allLayer) break;
+        depth++;
+      }
+      return depth;
+    }
+
+    function edgeHasEmerald(rock, fromRight) {
+      const col = fromRight ? rock.w - 1 : 0;
+      for (let y = 0; y < rock.h; y++) {
+        const c = rock.grid[y][col];
+        if (c && c.mat === MATERIAL.EMERALD) return true;
+      }
+      return false;
+    }
+
     for (let i = 0; i < sourceColl.pieces.length - 1; i++) {
       const a = sourceColl.pieces[i];
       const b = sourceColl.pieces[i + 1];
       if (!(a.selected && b.selected)) continue;
       const bA = bounds[i], bB = bounds[i + 1];
       const aRock = a.rock, bRock = b.rock;
+
+      const kA = edgeLayerDepth(aRock, true);
+      const kB = edgeLayerDepth(bRock, false);
+      const extras = (edgeHasEmerald(aRock, true) || edgeHasEmerald(bRock, false)) ? 2 : 0;
+      const bandCols = kA + extras + kB;
+      if (bandCols === 0) continue;
+
+      const bandPx = bandCols * scale;
+      const gapMid = (bA.x + bA.w + bB.x) / 2;
+      const cellX  = Math.round(gapMid - bandPx / 2);
 
       const rowYs = new Set();
       for (let yy = 0; yy < aRock.h; yy++) {
@@ -691,16 +731,8 @@
       for (let yy = 0; yy < bRock.h; yy++) {
         if (bRock.grid[yy][0]) rowYs.add(bB.y + yy * scale);
       }
-
-      const gapStart = bA.x + bA.w;
-      const gapEnd   = bB.x;
       for (const sy of rowYs) {
-        cells.push({
-          x: gapStart - scale,                     // overlap 1 col into A
-          y: sy,
-          w: (gapEnd - gapStart) + scale * 2,      // gap + 1 col of B
-          h: scale,
-        });
+        cells.push({ x: cellX, y: sy, w: bandPx, h: scale });
       }
     }
 
