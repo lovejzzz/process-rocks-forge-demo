@@ -659,28 +659,34 @@
     requestAnimationFrame(frame);
   }
 
-  /* ── Emerald Filler: selected pieces pull together, emerald floods the gaps ── */
+  /* ── Emerald Filler: gap between selected pieces blinks emerald, then crossfade ── */
   function animateEmeraldFiller(sourceColl, resultColl, finish) {
     const offBefore = document.createElement('canvas');
     offBefore.width = 400; offBefore.height = 400;
     sourceColl.render(offBefore, false);
     const bounds = sourceColl._bounds.map(b => ({ ...b }));
+    const scale = sourceColl._scale || 4;
 
     const offAfter = document.createElement('canvas');
     offAfter.width = 400; offAfter.height = 400;
     resultColl.render(offAfter, false);
 
-    // Bounding box covering all selected source pieces (where emerald will flow).
-    let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
-    for (let i = 0; i < sourceColl.pieces.length; i++) {
-      if (!sourceColl.pieces[i].selected) continue;
-      const b = bounds[i];
-      if (b.x < sxMin) sxMin = b.x;
-      if (b.y < syMin) syMin = b.y;
-      if (b.x + b.w > sxMax) sxMax = b.x + b.w;
-      if (b.y + b.h > syMax) syMax = b.y + b.h;
+    // Seam rect for each adjacent pair of selected pieces — the visible gap
+    // plus one source-pixel column of overlap on each side.
+    const seams = [];
+    const padX = scale;
+    for (let i = 0; i < sourceColl.pieces.length - 1; i++) {
+      if (!(sourceColl.pieces[i].selected && sourceColl.pieces[i + 1].selected)) continue;
+      const a = bounds[i], b = bounds[i + 1];
+      const top = Math.min(a.y, b.y);
+      const bot = Math.max(a.y + a.h, b.y + b.h);
+      seams.push({
+        x: a.x + a.w - padX,
+        y: top,
+        w: (b.x - (a.x + a.w)) + padX * 2,
+        h: bot - top,
+      });
     }
-    const hasSelBox = sxMax > sxMin;
 
     const duration = 1100;
     const start = performance.now();
@@ -689,46 +695,28 @@
       const t = Math.min((now - start) / duration, 1);
       animCtx.clearRect(0, 0, 400, 400);
 
-      if (t < 0.45) {
-        // Phase 1: emerald glow grows across the selected cluster.
+      if (t < 0.7) {
+        // Blink phase: source stays put, the gap pulses emerald ~3 times.
         animCtx.drawImage(offBefore, 0, 0);
-        if (hasSelBox) {
-          const p = t / 0.45;
-          animCtx.save();
-          animCtx.globalAlpha = 0.55 * p;
-          animCtx.fillStyle = '#2fdc8a';
-          animCtx.fillRect(sxMin - 4, syMin - 4,
-                           sxMax - sxMin + 8, syMax - syMin + 8);
-          animCtx.restore();
-
-          if (Math.random() < 0.5) {
-            const { rect, ds } = canvasScreenPos();
-            const px = sxMin + Math.random() * (sxMax - sxMin);
-            const py = sxMin !== sxMax ? syMin + Math.random() * (syMax - syMin) : syMin;
-            spawnParticles(
-              rect.left + px * ds,
-              rect.top  + py * ds,
-              '#2fdc8a', 3
-            );
-          }
-        }
-      } else if (t < 0.6) {
-        // Phase 2: bright flash across the cluster.
-        animCtx.drawImage(offBefore, 0, 0);
-        const flash = Math.sin((t - 0.45) / 0.15 * Math.PI) * 0.85;
+        const blink = (Math.sin(t / 0.7 * Math.PI * 6) + 1) / 2;
         animCtx.save();
-        animCtx.globalAlpha = flash;
-        animCtx.fillStyle = '#b9ffe0';
-        if (hasSelBox) {
-          animCtx.fillRect(sxMin - 8, syMin - 8,
-                           sxMax - sxMin + 16, syMax - syMin + 16);
-        } else {
-          animCtx.fillRect(0, 0, 400, 400);
-        }
+        animCtx.fillStyle = '#2fdc8a';
+        animCtx.globalAlpha = 0.9 * blink;
+        for (const s of seams) animCtx.fillRect(s.x, s.y, s.w, s.h);
         animCtx.restore();
+
+        if (Math.random() < 0.4 && seams.length) {
+          const { rect, ds } = canvasScreenPos();
+          const s = seams[Math.floor(Math.random() * seams.length)];
+          spawnParticles(
+            rect.left + (s.x + s.w / 2) * ds,
+            rect.top  + (s.y + Math.random() * s.h) * ds,
+            '#2fdc8a', 2
+          );
+        }
       } else {
-        // Phase 3: crossfade before → after.
-        const p = (t - 0.6) / 0.4;
+        // Crossfade before → after.
+        const p = (t - 0.7) / 0.3;
         animCtx.globalAlpha = 1 - p;
         animCtx.drawImage(offBefore, 0, 0);
         animCtx.globalAlpha = p;
