@@ -183,7 +183,8 @@ class Rock {
         const p = this.get(x, y);
         left.grid[y][x] = p ? { ...p } : null;
       }
-      if (left.grid[y][halfW - 1] && this.get(halfW, y))
+      const seam = left.grid[y][halfW - 1];
+      if (seam && this.get(halfW, y) && seam.mat !== MATERIAL.EMERALD)
         left.grid[y][halfW - 1] = { mat: MATERIAL.INTERIOR, shade: 1 };
     }
     left.history = [...this.history, 'Split Half'];
@@ -195,7 +196,8 @@ class Rock {
         const p = this.get(x + halfW, y);
         right.grid[y][x] = p ? { ...p } : null;
       }
-      if (right.grid[y][0] && this.get(halfW - 1, y))
+      const seam = right.grid[y][0];
+      if (seam && this.get(halfW - 1, y) && seam.mat !== MATERIAL.EMERALD)
         right.grid[y][0] = { mat: MATERIAL.INTERIOR, shade: 1 };
     }
     right.history = [...this.history, 'Split Half'];
