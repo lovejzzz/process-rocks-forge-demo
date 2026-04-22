@@ -101,6 +101,19 @@ h1 {
   letter-spacing: 2px;
 }
 
+.version-tag {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 3px 6px;
+  font-size: 8px;
+  color: #ffd700;
+  background: #0f3460;
+  border: 2px solid #533483;
+  letter-spacing: 1px;
+  vertical-align: middle;
+  text-shadow: none;
+}
+
 /* ── Forge area ── */
 #forge-area {
   display: flex;

@@ -1,5 +1,7 @@
 # Rock Forge
 
+**Version:** V0.1
+
 A pixel-art rock processing game built with vanilla HTML, CSS, and JavaScript.
 
 ## The Idea
@@ -26,12 +28,21 @@ You start with a rock. You apply a process. You get a product. Then you drag the
 | **Split Half** | Cuts the rock into two pieces you can select independently |
 | **Mosaic Ruby** | Embeds clusters of red ruby gemstones into the surface |
 | **Gold Plated** | Wraps a gold layer around the shape, making it physically thicker |
+| **Emerald Filler** | Merges two adjacent selected pieces back into one, filling the seam with an emerald band |
+
+### Emerald Filler — details
+
+- Requires **two adjacent pieces both selected** (otherwise the button is disabled).
+- Fresh split seams (`INTERIOR` marker) become a 2‑column emerald band.
+- If one or both pieces already contain emerald — i.e. they came from a previously-filled rock, even if a later **Gold Plated** pass sealed a gold border over the seam — Emerald Filler inserts an additional emerald band between them. This means you can split → fill → split → gold‑plate → fill again and still get a visible emerald seam instead of gold‑touching‑gold.
+- Repeated fills on the same rock keep thickening the emerald band.
 
 Processes compose freely:
 - Gold plate a ruby-mosaic rock → gold with red inlays visible
 - Split, then flip just one half
 - Gold plate repeatedly → thicker and thicker gold layers
 - Split a gold-plated rock → see the cross-section
+- Split → Emerald Filler → Split → Mosaic Ruby → Gold Plated → Emerald Filler → an emerald vein sandwiched between gold shells
 
 ## How to Play
 
@@ -63,7 +74,8 @@ Then open `http://localhost:8899`.
 - **HTML/CSS/JS** — no frameworks, no dependencies
 - **Pixel art engine** — custom `Rock` class with grid-based transformations
 - **RockCollection** — manages multi-piece rocks after splitting, with per-piece selection
-- **Forge animations** — per-process visual effects (gold wave, ruby pop-in, squeeze flip, crack & split)
+- **Forge animations** — per-process visual effects with anticipation → impact → follow-through timing: radial gold sweep, ruby pop-in with rings, squeeze-and-flip with motion blur, lightning-bolt split with screen shake, and emerald-stream fill
+- **Juice layer** — typed particle system (sparks / embers / dust / shards / rings) with trails and additive blending, radial-bloom flash, screen shake, layered Web Audio SFX (chords + filtered noise)
 - **Drag & drop** — all interactions use native HTML5 drag and drop
 - **Seeded RNG** — consistent rock generation via Mulberry32
 
