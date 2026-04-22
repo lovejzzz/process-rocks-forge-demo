@@ -213,10 +213,10 @@ class Rock {
     return this.clone();
   }
 
-  /* Merge a contiguous left-to-right run of rocks into one, filling the
-     bounding-box gaps (and any leftover INTERIOR seam cells) with emerald. */
+  /* Merge a contiguous left-to-right run of rocks into one. Where the pieces
+     meet, Split Half's INTERIOR seam cells become emerald — the original
+     silhouette is otherwise preserved. */
   static emeraldMerge(rocks) {
-    // 1. Lay out horizontally, vertically centered in the union height.
     let totalW = 0;
     let maxH = 0;
     for (const rk of rocks) {
@@ -225,42 +225,21 @@ class Rock {
     }
 
     const merged = new Rock(totalW, maxH);
+    const rng = mulberry32(rocks.length * 31 + totalW);
     let xOffset = 0;
     for (const rk of rocks) {
       const yOffset = Math.floor((maxH - rk.h) / 2);
       for (let y = 0; y < rk.h; y++)
         for (let x = 0; x < rk.w; x++) {
           const p = rk.grid[y][x];
-          if (p) merged.grid[y + yOffset][x + xOffset] = { ...p };
+          if (!p) continue;
+          merged.grid[y + yOffset][x + xOffset] =
+            p.mat === MATERIAL.INTERIOR
+              ? { mat: MATERIAL.EMERALD, shade: Math.floor(rng() * 3) }
+              : { ...p };
         }
       xOffset += rk.w;
     }
-
-    // 2. Bounding box of non-empty cells.
-    let minX = totalW, maxX = -1, minY = maxH, maxY = -1;
-    for (let y = 0; y < maxH; y++)
-      for (let x = 0; x < totalW; x++) {
-        if (merged.grid[y][x]) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    if (maxX < 0) return merged; // nothing to fill
-
-    // 3. Fill empty cells inside the bbox with emerald, and convert any
-    //    INTERIOR seam pixels (from prior Split Half) to emerald too.
-    const rng = mulberry32(rocks.length * 31 + totalW);
-    for (let y = minY; y <= maxY; y++)
-      for (let x = minX; x <= maxX; x++) {
-        const cell = merged.grid[y][x];
-        if (!cell) {
-          merged.grid[y][x] = { mat: MATERIAL.EMERALD, shade: Math.floor(rng() * 3) };
-        } else if (cell.mat === MATERIAL.INTERIOR) {
-          merged.grid[y][x] = { mat: MATERIAL.EMERALD, shade: Math.floor(rng() * 3) };
-        }
-      }
 
     merged.history = [...rocks[0].history, 'Emerald Filler'];
     return merged;
